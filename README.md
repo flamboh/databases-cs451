@@ -6,5 +6,3 @@ Fall 2025 group work with:
 - Emily Mayer
 - Jack Lund
 - Inna Gruneva
-
--Inna added this line whoop.
