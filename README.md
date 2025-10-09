@@ -1,3 +1,6 @@
-# CS 451/551: Database Processing, Fall 2025
+# databases-cs451
 
-Acknowledgments and Thanks to Prof. Mohammad Sadoghi (UC Davis)
+Fall 2025 group work with:
+- Emily Mayer
+- Jack Lund
+- Inna Gruneva
