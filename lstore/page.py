@@ -55,6 +55,8 @@ class Page:
         :param index: Slot index to read from.
         :return: The integer value at the specified slot.
         """
+        if index < 0 or index >= self.num_records:
+            raise IndexError(f"Index {index} out of bounds [0, {self.num_records})")
         offset = self.get_offset(index)
         return int.from_bytes(self.data[offset:offset + INT_SIZE], byteorder='little', signed=True)
 
@@ -66,4 +68,6 @@ class Page:
         :param end: The ending index (exclusive).
         :return: A list of integer values from start to end-1 slots.
         """
+        if start < 0 or start >= self.num_records or end < 0 or end > self.num_records:
+            raise IndexError(f"Invalid range [{start}, {end}) out of bounds [0, {self.num_records})")
         return [self.read(i) for i in range(start, end)]
