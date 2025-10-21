@@ -39,12 +39,20 @@ def test_page_read():
 
 def test_page_read_range():
   page = Page()
+  for i in range(5):
+    page.write(i * 10)
+  assert page.read_range(2, 4) == [20, 30]
+  assert page.read_range(0) == [0, 10, 20, 30, 40]
+
+
+def test_page_read_range_max_slots():
+  page = Page()
   for i in range(MAX_SLOTS):
     page.write(i)
   assert not page.has_capacity()
   assert page.read_range() == list(range(MAX_SLOTS))
   assert page.read_range(start=1, end=3) == [1, 2]
-  assert page.read_range(start=0, end=MAX_SLOTS) == list(range(MAX_SLOTS))
+  assert page.read_range(0) == list(range(MAX_SLOTS))
 
 def test_page_write_read_negative():
     page = Page()
@@ -68,3 +76,12 @@ def test_page_read_range_edge_cases():
         page.write(i * 10)
     assert page.read_range(2, 2) == []
     assert page.read_range(0, 0) == []
+    assert page.read_range(5, 5) == []
+    with pytest.raises(IndexError):
+        page.read_range(2, 1)
+    with pytest.raises(IndexError):
+        page.read_range(-1, 2)
+    with pytest.raises(IndexError):
+        page.read_range(2, 10)
+    with pytest.raises(IndexError):
+        page.read_range(10, 2)
