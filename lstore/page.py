@@ -60,14 +60,16 @@ class Page:
         offset = self.get_offset(index)
         return int.from_bytes(self.data[offset:offset + INT_SIZE], byteorder='little', signed=True)
 
-    def read_range(self, start=0, end=MAX_SLOTS):
+    def read_range(self, start=0, end=None):
         """
         Reads a sequence of 64-bit integers from a range of slots.
 
         :param start: The starting index (inclusive).
-        :param end: The ending index (exclusive).
+        :param end: The ending index (exclusive). Defaults to num_records if None
         :return: A list of integer values from start to end-1 slots.
         """
-        if start < 0 or start >= self.num_records or end < 0 or end > self.num_records:
-            raise IndexError(f"Invalid range [{start}, {end}) out of bounds [0, {self.num_records})")
+        if end is None:
+            end = self.num_records
+        if start < 0 or start > self.num_records or end < 0 or end > self.num_records or start > end:
+            raise IndexError(f"Invalid range [{start}, {end}) out of bounds [0, {self.num_records}) or start > end")
         return [self.read(i) for i in range(start, end)]
