@@ -21,7 +21,14 @@ class Query:
     # Return False if record doesn't exist or is locked due to 2PL
     """
     def delete(self, primary_key):
-        pass
+        rid = self.table.index.lookup(primary_key)
+        if rid is None:
+            return False
+        if not isinstance (rid, list):
+            rid = [rid]
+        results = [self.table.delete_record(x) for x in rids]
+        return all(results)
+
     
     
     """
@@ -31,8 +38,7 @@ class Query:
     """
     def insert(self, *columns):
         schema_encoding = '0' * self.table.num_columns
-        pass
-
+        return self.table.insert_record(columns, schema_encoding)
     
     """
     # Read matching record with specified search key
@@ -44,7 +50,18 @@ class Query:
     # Assume that select will never be called on a key that doesn't exist
     """
     def select(self, search_key, search_key_index, projected_columns_index):
-        pass
+        rid = self.table.rid(search_key)
+        if rid is None:
+            return False
+        if not isinstance (rid, list):
+            rid = [rid]
+        records = []
+        for x in rid:
+            record = self.table.select_record(rid, projected_columns_index)
+            if record is False:
+                return False
+            records.append(record)
+        return records
 
     
     """
@@ -58,7 +75,18 @@ class Query:
     # Assume that select will never be called on a key that doesn't exist
     """
     def select_version(self, search_key, search_key_index, projected_columns_index, relative_version):
-        pass
+        rid = self.table.rid(search_key)
+        if rid is None:
+            return False
+        if not isinstance(rid, list):
+            rid = [rid]
+        records = []
+        for x in rid:
+            record = self.table.select_record(x, projected_columns_index)
+            if record is False:
+                return False
+            records.append(record)
+        return records
 
     
     """
@@ -67,7 +95,13 @@ class Query:
     # Returns False if no records exist with given key or if the target record cannot be accessed due to 2PL locking
     """
     def update(self, primary_key, *columns):
-        pass
+        rid = self.table.rid(primary_key)
+        if rid is None:
+            return False
+        if not isinstance (rid, list):
+            rid = [rid]
+        results = [self.table.update_record(rid, columns) for x in rid]
+        return all(results)
 
     
     """
@@ -79,7 +113,19 @@ class Query:
     # Returns False if no record exists in the given range
     """
     def sum(self, start_range, end_range, aggregate_column_index):
-        pass
+        total = 0
+        for key in range(start_range, end_range + 1):
+            rid = self.table.rid(key)
+            if rid is None:
+                return False
+            if not isinstance (rid, list):
+                rid = [rid]
+            for x in rid:
+                record = self.table.select_record(x, [1]*self.table.num_columns)
+                if record is False:
+                    continue
+                total += record [aggregate_column_index]
+        return total
 
     
     """
@@ -92,7 +138,19 @@ class Query:
     # Returns False if no record exists in the given range
     """
     def sum_version(self, start_range, end_range, aggregate_column_index, relative_version):
-        pass
+        total = 0
+        for key in range(start_range, end_range + 1):
+            rid = self.table.rid(key)
+            if rid is None:
+                continue
+            if not isinstance(rid, list):
+                rid = [rid]
+            for x in rid:
+                record = self.table.select_record(x, [1]*self.table.num_columns)
+                if record is False:
+                    continue
+                total += record[aggregate_column_index]
+        return total
 
     
     """
