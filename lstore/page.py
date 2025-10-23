@@ -1,6 +1,4 @@
-PAGE_SIZE = 4096
-INT_SIZE = 8
-MAX_SLOTS = PAGE_SIZE // INT_SIZE
+from config import Config
 
 class Page:
     """
@@ -13,8 +11,9 @@ class Page:
         Initializes an empty page with capacity for MAX_SLOTS 64-bit integers.
         """
         self.num_records = 0
-        self.data = bytearray(PAGE_SIZE)
-        self.capacity = MAX_SLOTS
+        self.data = bytearray(Config.page_size)
+        self.page_id = id(self)
+        self.capacity = Config.max_slots
 
     def has_capacity(self):
         """
@@ -22,16 +21,16 @@ class Page:
 
         :return: True if there is room for at least one more record, False otherwise.
         """
-        return self.num_records < MAX_SLOTS
+        return self.num_records < Config.max_slots
 
-    def get_offset(self, index):
+    def get_offset(self, slot):
         """
         Gets the offset of the specified slot in the page.
         
-        :param index: Slot index to get the offset of.
+        :param slot: Slot index to get the offset of.
         :return: The offset of the specified slot.
         """
-        return index * INT_SIZE
+        return slot * Config.int_size
     
 
     def write(self, value):
@@ -43,22 +42,22 @@ class Page:
         """
         if not self.has_capacity():
             return False
-        offset = self.get_offset(self.num_records)
-        self.data[offset:offset + INT_SIZE] = value.to_bytes(INT_SIZE, byteorder='little', signed=True)
+        slot_offset = self.get_offset(self.num_records)
+        self.data[slot_offset:slot_offset + Config.int_size] = value.to_bytes(Config.int_size, byteorder=Config.byteorder, signed=True)
         self.num_records += 1
         return self.num_records - 1
     
-    def read(self, index):
+    def read(self, slot):
         """
         Reads a 64-bit signed integer from the specified slot.
 
-        :param index: Slot index to read from.
+        :param slot: Slot index to read from.
         :return: The integer value at the specified slot.
         """
-        if index < 0 or index >= self.num_records:
-            raise IndexError(f"Index {index} out of bounds [0, {self.num_records})")
-        offset = self.get_offset(index)
-        return int.from_bytes(self.data[offset:offset + INT_SIZE], byteorder='little', signed=True)
+        if slot < 0 or slot >= self.num_records:
+            raise IndexError(f"Index {slot} out of bounds [0, {self.num_records})")
+        slot_offset = self.get_offset(slot)
+        return int.from_bytes(self.data[slot_offset:slot_offset + Config.int_size], byteorder=Config.byteorder, signed=True)
 
     def read_range(self, start=0, end=None):
         """
