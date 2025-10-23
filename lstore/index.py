@@ -14,42 +14,32 @@ class Index:
     """
 
     def locate(self, column, value):
-        #see if column has index
-        if self.indices[column] is None:
-            return []
-        
-        #see if value exists in index
-        if value in self.indices[column]:
-            return [self.indices[column][value]]
-        else:
-            return []
+        pass
 
     """
     # Returns the RIDs of all records with values in column "column" between "begin" and "end"
     """
 
     def locate_range(self, begin, end, column):
-        #see if column has index
-        if self.indices[column] is None:
-            return []
-
-        result = []
-        for value, rid in self.indices[column].items():
-            if begin <= value <= end:
-                result.append(rid)
-        return result
+        pass
 
     """
     # optional: Create index on specific column
     """
 
     def create_index(self, column_number):
-        if self.indices[column_number] is None:
-            self.indices[column_number] = {}
+        pass
 
     """
     # optional: Drop index of specific column
     """
 
     def drop_index(self, column_number):
-        self.indices[column_number] = None
+        pass
+
+    """
+    # returns the RID if key exists
+    """
+    def lookup(self, key_value):
+        col_index = self.table.key
+        return self.indices[col_index].get(key_value, None)
