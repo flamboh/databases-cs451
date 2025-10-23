@@ -38,4 +38,6 @@ class Database():
     # Returns table with the passed name
     """
     def get_table(self, name):
-        pass
+        if name not in self.tables:
+            raise ValueError(f"Table '{name}' does not exist")
+        return self.tables[name]
