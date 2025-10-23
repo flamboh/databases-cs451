@@ -148,7 +148,7 @@ class BPlusTree:
 
     @property
     def _min_internal_keys(self) -> int:
-        return (self.order // 2) - 1
+        return ((self.order + 1) // 2) - 1
 
     def _leftmost_leaf(self) -> _LeafNode:
         node = self._root
