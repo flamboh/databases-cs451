@@ -6,7 +6,7 @@ class Page:
     Supports basic record management including write, read, and range-read operations.
     """
 
-    def __init__(self):
+    def __init__(self, start_rid = 0):
         """
         Initializes an empty page with capacity for MAX_SLOTS 64-bit integers.
         """
@@ -14,6 +14,7 @@ class Page:
         self.data = bytearray(Config.page_size)
         self.page_id = id(self)
         self.capacity = Config.max_slots
+        self.start_rid = start_rid
 
     def has_capacity(self):
         """
@@ -81,6 +82,6 @@ class Page:
             raise IndexError(f"Invalid range [{start}, {end}) out of bounds [0, {self.num_records}) or start > end")
         return [self.read(i) for i in range(start, end)]
     
-    def has_record(self, rid, start_rid=0):
-        slot = rid - start_rid
+    def has_record(self, rid):
+        slot = rid - self.start_rid
         return 0 <= slot < self.num_records

@@ -33,12 +33,11 @@ class PageDirectory:
         self.records_per_range = Config.records_per_page * Config.pages_per_range
         for range_id in range(num_ranges):
             self.page_directory[range_id] = {
-                "base": [Page() for _ in range(self.num_columns)],
-                "tail": [Page() for _ in range(self.num_columns)]
+                "base": [[Page()] for _ in range(self.num_columns)],
+                "tail": [[Page()] for _ in range(self.num_columns)]
             }
 
     def add_record(self, rid: int, columns: list[int], is_base=True):
-        # need to check if num_ranges is reached
         range_id = rid // self.records_per_range
         target_type = "base" if is_base else "tail"
         
@@ -47,24 +46,23 @@ class PageDirectory:
             for page in pages:
                 if page.has_capacity():
                     page.write(columns[col_index])
-                else: # all pages full -> make a new page
-                    new_page = Page()
+                    break
+                else:
+                    new_page = Page(start_rid=rid)  # track new rid start
                     new_page.write(columns[col_index])
                     pages.append(new_page)
 
 
+
     def get_record_from_rid(self, rid: int):
-        range_id = rid // self.records_per_range
-        pages = self.page_directory[range_id]
-        
-        # base first, tail second
+        page_range = rid % self.num_ranges
+        range_entry = self.page_directory[page_range]
+
         for page_type in ["base", "tail"]:
-            for col_index in range(self.num_columns):
-                page = pages[page_type][col_index]
-                start_rid = (range_id * self.records_per_range) + (col_index * Config.records_per_page)
-                rec = page.get_record(rid, start_rid)
-                if rec is not None:
-                    return rec
+            for col_pages in range_entry[page_type]:
+                for page in col_pages:
+                    if page.has_record(rid):
+                        return page.get_record(rid)
         return None
 
 
@@ -80,9 +78,9 @@ class Table:
         self.name = name
         self.key = key
         self.num_columns = num_columns
-        self.page_directory = PageDirectory(Config.initial_page_ranges)
+        self.page_directory = PageDirectory(self.num_columns)
         self.index = Index(self)
-        pass
+        self.next_rid = 0
 
     """
     # for primary key lookups
@@ -99,9 +97,12 @@ class Table:
         return self.page_directory.get_record_from_rid(rid)
 
     def insert_record(self, columns: list[int], is_base=True):
-        rid = columns[self.key]
+        rid = self.next_rid
+        self.next_rid += 1
         self.page_directory.add_record(rid, columns, is_base)
-        self.index.insert(rid, columns[self.key])
+        self.index.insert(columns[self.key], rid)
+        return rid
+
 
     def delete_record(self, rid: int):
         rec = self.get_record(rid)
@@ -117,9 +118,7 @@ class Table:
             return False
         
         # merge old and new
-        updated_columns = {
-            new if new is not None else old for new, old in zip(columns, old_record_value)
-        }
+        updated_columns = [new if new is not None else old for new, old in zip(columns, old_record_values)]
 
         # insert into tail pages
         self.page_directory.add_record(rid, updated_columns, is_base=False)
@@ -134,5 +133,3 @@ class Table:
     def __merge(self):
         print("merge is happening")
         pass
-
- 
