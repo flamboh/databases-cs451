@@ -1,38 +1,107 @@
-"""
-A data strucutre holding indices for various columns of a table. Key column should be indexd by default, other columns can be indexed through this object. Indices are usually B-Trees, but other data structures can be used as well.
-"""
+"""Index manager backed by a B+ tree per indexed column."""
+
+from __future__ import annotations
+
+from typing import Iterable, List, Optional, Tuple
+
+from lstore.bplus import BPlusTree
+
 
 class Index:
+    """Maintains secondary structures to accelerate column lookups."""
 
-    def __init__(self, table):
-        # One index for each table. All our empty initially.
-        self.indices = [None] *  table.num_columns
-        pass
+    def __init__(self, table) -> None:
+        self.table = table
+        self.indices: List[Optional[BPlusTree]] = [None] * table.num_columns
+        # Always build an index for the primary key column.
+        self.create_index(table.key)
 
-    """
-    # returns the location of all records with the given value on column "column"
-    """
+    # ------------------------------------------------------------------
+    # Lookup helpers
+    # ------------------------------------------------------------------
+    def locate(self, column: int, value: int) -> List[int]:
+        tree = self.indices[column]
+        if tree is None:
+            return []
+        return tree.find(value)
 
-    def locate(self, column, value):
-        pass
+    def locate_range(self, begin: int, end: int, column: int) -> List[int]:
+        tree = self.indices[column]
+        if tree is None:
+            return []
+        return tree.find_range(begin, end)
 
-    """
-    # Returns the RIDs of all records with values in column "column" between "begin" and "end"
-    """
+    # ------------------------------------------------------------------
+    # Mutation helpers
+    # ------------------------------------------------------------------
+    def add(self, rid: int, columns: List[Optional[int]]) -> None:
+        for column, tree in enumerate(self.indices):
+            if tree is None:
+                continue
+            value = columns[column]
+            if value is None:
+                continue
+            tree.insert(value, rid)
 
-    def locate_range(self, begin, end, column):
-        pass
+    def remove(self, rid: int, columns: List[Optional[int]]) -> None:
+        for column, tree in enumerate(self.indices):
+            if tree is None:
+                continue
+            value = columns[column]
+            if value is None:
+                continue
+            tree.remove(value, rid)
 
-    """
-    # optional: Create index on specific column
-    """
+    def update(self, rid: int, old_values: List[Optional[int]], new_values: List[Optional[int]]) -> None:
+        for column, tree in enumerate(self.indices):
+            if tree is None:
+                continue
+            old = old_values[column]
+            new = new_values[column]
+            if old == new or old is None or new is None:
+                continue
+            tree.remove(old, rid)
+            tree.insert(new, rid)
 
-    def create_index(self, column_number):
-        pass
+    # ------------------------------------------------------------------
+    # Index lifecycle
+    # ------------------------------------------------------------------
+    def create_index(self, column_number: int) -> bool:
+        if self.indices[column_number] is not None:
+            return False
 
-    """
-    # optional: Drop index of specific column
-    """
+        tree = BPlusTree()
+        self.indices[column_number] = tree
+        self._bulk_load(column_number, tree)
+        return True
 
-    def drop_index(self, column_number):
-        pass
+    def drop_index(self, column_number: int) -> bool:
+        if column_number == self.table.key:
+            # Primary key index must always exist.
+            return False
+        if self.indices[column_number] is None:
+            return False
+        self.indices[column_number] = None
+        return True
+
+    # ------------------------------------------------------------------
+    # Bulk loading helpers
+    # ------------------------------------------------------------------
+    def _bulk_load(self, column_number: int, tree: BPlusTree) -> None:
+        for rid, row in self._iterate_existing_rows():
+            value = row[column_number]
+            if value is None:
+                continue
+            tree.insert(value, rid)
+
+    def _iterate_existing_rows(self) -> Iterable[Tuple[int, List[Optional[int]]]]:
+        if hasattr(self.table, "iter_rows_for_index"):
+            yield from self.table.iter_rows_for_index()
+            return
+
+        if hasattr(self.table, "page_directory") and hasattr(self.table, "get_record_by_rid"):
+            for rid in self.table.page_directory.keys():
+                record = self.table.get_record_by_rid(rid)
+                if record is None:
+                    continue
+                yield rid, record.columns
