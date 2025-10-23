@@ -6,8 +6,18 @@ class Index:
 
     def __init__(self, table):
         # One index for each table. All our empty initially.
-        self.indices = [None] *  table.num_columns
-        pass
+        self.indices = [None] * table.num_columns
+        self.table = table
+
+    def insert(self, rid, key_value, column=None):
+        col_index = self.table.key if column is None else column
+        if self.indices[col_index] is None:
+            self.create_index(col_index)
+        # handle multiple RIDs per value
+        if key_value in self.indices[col_index]:
+            self.indices[col_index][key_value].append(rid)
+        else:
+            self.indices[col_index][key_value] = [rid]
 
     """
     # returns the location of all records with the given value on column "column"
@@ -36,7 +46,7 @@ class Index:
         result = []
         for value, rid in self.indices[column].items():
             if begin <= value <= end:
-                result.append(rid)
+                result.extend(rid) # handles multiple RIDs
         return result
 
     """
@@ -59,4 +69,5 @@ class Index:
     """
     def lookup(self, key_value):
         col_index = self.table.key
-        return self.indices[col_index].get(key_value, None)
+        rid = self.indices[col_index].get(key_value, [])
+        return rid[0] if rid else None
