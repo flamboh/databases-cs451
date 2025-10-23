@@ -28,7 +28,10 @@ class Database():
     # Deletes the specified table
     """
     def drop_table(self, name):
-        pass
+        if name in self.tables:
+            del self.tables[name]
+        else:
+            print(f"Table '{name}' does not exist.")
 
     
     """
