@@ -80,3 +80,7 @@ class Page:
         if start < 0 or start > self.num_records or end < 0 or end > self.num_records or start > end:
             raise IndexError(f"Invalid range [{start}, {end}) out of bounds [0, {self.num_records}) or start > end")
         return [self.read(i) for i in range(start, end)]
+    
+    def has_record(self, rid, start_rid=0):
+        slot = rid - start_rid
+        return 0 <= slot < self.num_records
