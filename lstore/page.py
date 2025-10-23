@@ -32,12 +32,12 @@ class Page:
         """
         return slot * Config.int_size
     
-    def get_record(self, rid: int):
+    def get_record(self, rid: int, start_rid: int = 0):
         """
         Maps an RID to the slot index and returns the value
         """
-        slot = rid % self.capacity
-        if slot < self.num_records:
+        slot = rid - start_rid
+        if 0 <= slot < self.num_records:
             return self.read(slot)
         return None
 

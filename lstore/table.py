@@ -61,7 +61,8 @@ class PageDirectory:
         for page_type in ["base", "tail"]:
             for col_index in range(self.num_columns):
                 page = pages[page_type][col_index]
-                rec = page.get_record(rid)
+                start_rid = (range_id * self.records_per_range) + (col_index * Config.records_per_page)
+                rec = page.get_record(rid, start_rid)
                 if rec is not None:
                     return rec
         return None
