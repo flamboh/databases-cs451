@@ -32,4 +32,7 @@ class Table:
     def __merge(self):
         print("merge is happening")
         pass
+
+    def rid(self, key):
+        return self.index.lookup(key)
  
