@@ -13,6 +13,8 @@ class Record:
         self.rid = rid
         self.key = key
         self.columns = columns
+        self.is_base = is_base
+        self.deleted = False
 
     def __getitem__(self, column):
         return self.columns[column]
@@ -21,7 +23,7 @@ class Record:
         return f"{self.rid}, {self.key}, {self.columns}"
 
     def __repr__(self):
-        return "Record(rid={self.rid}, key={self.key}, columns={self.columns}, is_base={self.is_base})"
+        return f"Record(rid={self.rid}, key={self.key}, columns={self.columns}, is_base={self.is_base})"
 
 class PageDirectory:
     def __init__(self, num_columns: int, num_ranges: int = Config.initial_page_ranges):
@@ -35,19 +37,29 @@ class PageDirectory:
                 "tail": [Page() for _ in range(self.num_columns)]
             }
 
-    def add_record(self, columns: list[int]):
+    def add_record(self, rid: int, columns: list[int], is_base=True):
         # Need to check if num_ranges is reached
-        range_id = columns[Config.rid_column] // self.records_per_range
+        range_id = rid // self.records_per_range
+        target_type = "base" if is_base else "tail"
         
-        self.page_directory[range_id]["base"]
+        for col_index in range(self.num_columns):
+            page = self.page_directory[range_id][target_type][col_index]
+            page.add_record(rid, columns[col_index])
+
 
     def get_record_from_rid(self, rid: int):
-        page_range = rid % self.num_ranges
-        pages = self.page_directory[page_range]
-        for page in pages:  
-            if page.has_record(rid):
-                return page.get_record(rid)
+        range_id = rid // self.records_per_range
+        pages = self.page_directory[range_id]
+        
+        # base first, tail second
+        for page_type in ["base", "tail"]:
+            for col_index in range(self.num_columns):
+                page = pages[page_type][col_index]
+                rec = page.get_record(rid)
+                if rec is not None:
+                    return rec
         return None
+
 
 
 class Table:
@@ -65,16 +77,33 @@ class Table:
         self.index = Index(self)
         pass
 
+    """
+    # for primary key lookups
+    """
+    def rid(self, key):
+        return self.index.lookup(key)
+    
     def get_record(self, rid: int):
+        """
         page_range = rid % Config.initial_page_ranges
         pages = self.page_directory.get_page_range(page_range)
-
         return None
+        """
+        return self.page_directory.get_record_from_rid(rid)
 
+    def insert_record(self, rid: int, columns: list[int], is_base=True):
+        self.page_directory.add_record(rid, columns, is_base)
+        self.index.insert(rid, columns[self.key])
+
+    def delete_record(self, rid: int):
+        rec = self.get_record(rid)
+        if rec is None:
+            return False
+        rec.deleted = True
+        return True
+    
     def __merge(self):
         print("merge is happening")
         pass
 
-    def rid(self, key):
-        return self.index.lookup(key)
  
