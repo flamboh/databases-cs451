@@ -10,6 +10,7 @@ class Index:
         # One index for each table. All our empty initially.
         self.indices = [None] * table.num_columns
         self.table = table
+        self.indices[table.key] = BPlusTree(order=32)
 
     def insert(self, rid, key_value, column=None):
         col = self.table.key if column is None else column
@@ -22,8 +23,7 @@ class Index:
     """
 
     def locate(self, column, value):
-        tree = self.indices[column
-                            ]
+        tree = self.indices[column]
         if tree is None:
             return []
         return tree.find(value)
