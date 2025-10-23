@@ -98,7 +98,8 @@ class Table:
         """
         return self.page_directory.get_record_from_rid(rid)
 
-    def insert_record(self, rid: int, columns: list[int], is_base=True):
+    def insert_record(self, columns: list[int], is_base=True):
+        rid = columns[self.key]
         self.page_directory.add_record(rid, columns, is_base)
         self.index.insert(rid, columns[self.key])
 
@@ -107,6 +108,27 @@ class Table:
         if rec is None:
             return False
         rec.deleted = True
+        return True
+    
+    def update_record(self, rid: int, columns: list[int]):
+        # get base
+        old_record_values = self.get_record(rid)
+        if old_record_values is None:
+            return False
+        
+        # merge old and new
+        updated_columns = {
+            new if new is not None else old for new, old in zip(columns, old_record_value)
+        }
+
+        # insert into tail pages
+        self.page_directory.add_record(rid, updated_columns, is_base=False)
+
+        # update index if primary key changed
+        key_column = self.key
+        if updated_columns[key_column] != old_record_values[key_column]:
+            self.index.insert(rid, updated_columns[key_column])
+
         return True
     
     def __merge(self):
