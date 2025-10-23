@@ -13,7 +13,7 @@ class Page:
         self.num_records = 0
         self.data = bytearray(Config.page_size)
         self.page_id = id(self)
-        self.capacity = Config.max_slots
+        self.capacity = Config.records_per_page
 
     def has_capacity(self):
         """
@@ -21,7 +21,7 @@ class Page:
 
         :return: True if there is room for at least one more record, False otherwise.
         """
-        return self.num_records < Config.max_slots
+        return self.num_records < Config.records_per_page
 
     def get_offset(self, slot):
         """
