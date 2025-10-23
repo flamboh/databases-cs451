@@ -38,13 +38,19 @@ class PageDirectory:
             }
 
     def add_record(self, rid: int, columns: list[int], is_base=True):
-        # Need to check if num_ranges is reached
+        # need to check if num_ranges is reached
         range_id = rid // self.records_per_range
         target_type = "base" if is_base else "tail"
         
         for col_index in range(self.num_columns):
-            page = self.page_directory[range_id][target_type][col_index]
-            page.add_record(rid, columns[col_index])
+            pages = self.page_directory[range_id][target_type][col_index]
+            for page in pages:
+                if page.has_capacity():
+                    page.write(columns[col_index])
+                else: # all pages full -> make a new page
+                    new_page = Page()
+                    new_page.write(columns[col_index])
+                    pages.append(new_page)
 
 
     def get_record_from_rid(self, rid: int):
