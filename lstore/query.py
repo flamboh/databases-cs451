@@ -26,7 +26,7 @@ class Query:
             return False
         if not isinstance (rid, list):
             rid = [rid]
-        results = [self.table.delete_record(x) for x in rids]
+        results = [self.table.delete_record(x) for x in rid]
         return all(results)
 
     
@@ -57,7 +57,7 @@ class Query:
             rid = [rid]
         records = []
         for x in rid:
-            record = self.table.select_record(rid, projected_columns_index)
+            record = self.table.get_record(rid, projected_columns_index)
             if record is False:
                 return False
             records.append(record)
@@ -82,7 +82,7 @@ class Query:
             rid = [rid]
         records = []
         for x in rid:
-            record = self.table.select_record(x, projected_columns_index)
+            record = self.table.get_record(x, projected_columns_index)
             if record is False:
                 return False
             records.append(record)
@@ -121,7 +121,7 @@ class Query:
             if not isinstance (rid, list):
                 rid = [rid]
             for x in rid:
-                record = self.table.select_record(x, [1]*self.table.num_columns)
+                record = self.table.get_record(x, [1]*self.table.num_columns)
                 if record is False:
                     continue
                 total += record [aggregate_column_index]
@@ -146,7 +146,7 @@ class Query:
             if not isinstance(rid, list):
                 rid = [rid]
             for x in rid:
-                record = self.table.select_record(x, [1]*self.table.num_columns)
+                record = self.table.get_record(x, [1]*self.table.num_columns)
                 if record is False:
                     continue
                 total += record[aggregate_column_index]
