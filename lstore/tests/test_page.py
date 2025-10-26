@@ -1,5 +1,6 @@
 import pytest
-from lstore.page import Page, MAX_SLOTS, INT_SIZE
+from lstore.page import Page
+from config import Config
 
 def test_page_init():
   page = Page()
@@ -9,7 +10,7 @@ def test_page_has_capacity():
   page = Page()
   assert page.has_capacity()
   assert page.write(1) == 0
-  for i in range(MAX_SLOTS - 1):
+  for i in range(Config.records_per_page - 1):
     assert page.has_capacity()
     assert page.write(i) == i + 1
   assert not page.has_capacity()
@@ -23,9 +24,9 @@ def test_page_write():
 
 def test_page_write_overflow():
   page = Page()
-  for i in range(MAX_SLOTS):
+  for i in range(Config.records_per_page):
     page.write(i)
-  assert page.num_records == MAX_SLOTS
+  assert page.num_records == Config.records_per_page
   assert page.write(11) is False
 
 def test_page_read():
@@ -47,12 +48,12 @@ def test_page_read_range():
 
 def test_page_read_range_max_slots():
   page = Page()
-  for i in range(MAX_SLOTS):
+  for i in range(Config.records_per_page):
     page.write(i)
   assert not page.has_capacity()
-  assert page.read_range() == list(range(MAX_SLOTS))
+  assert page.read_range() == list(range(Config.records_per_page))
   assert page.read_range(start=1, end=3) == [1, 2]
-  assert page.read_range(0) == list(range(MAX_SLOTS))
+  assert page.read_range(0) == list(range(Config.records_per_page))
 
 def test_page_write_read_negative():
     page = Page()

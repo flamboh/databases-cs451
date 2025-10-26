@@ -13,7 +13,7 @@ class Page:
         self.num_records = 0
         self.data = bytearray(Config.page_size)
         self.page_id = id(self)
-        self.capacity = Config.max_slots
+        self.capacity = Config.records_per_page
 
     def has_capacity(self):
         """
@@ -21,7 +21,7 @@ class Page:
 
         :return: True if there is room for at least one more record, False otherwise.
         """
-        return self.num_records < Config.max_slots
+        return self.num_records < Config.records_per_page
 
     def get_offset(self, slot):
         """
@@ -46,7 +46,36 @@ class Page:
         self.data[slot_offset:slot_offset + Config.int_size] = value.to_bytes(Config.int_size, byteorder=Config.byteorder, signed=True)
         self.num_records += 1
         return self.num_records - 1
-    
+
+    def write_slot(self, slot, value):
+        """
+        Writes a 64-bit signed integer to the specified slot in the page.
+        
+        :param slot: Slot index to write to.
+        :param value: Integer value to write.
+        :return: The index (slot) where the value was written, or False if the page is full.
+        """
+        if slot < 0 or slot >= Config.records_per_page:
+            raise IndexError(f"Index {slot} out of bounds [0, {Config.records_per_page})")
+        # Enforce contiguous growth; allow overwrite of existing slots.
+        if slot > self.num_records:
+            raise IndexError(f"Cannot write to slot {slot}: current length is {self.num_records}.")
+        if slot == self.num_records:
+            if not self.has_capacity():
+                return False
+            slot_offset = self.get_offset(slot)
+            self.data[slot_offset:slot_offset + Config.int_size] = value.to_bytes(
+                Config.int_size, byteorder=Config.byteorder, signed=True
+            )
+            self.num_records += 1
+            return slot
+        # Overwrite existing slot
+        slot_offset = self.get_offset(slot)
+        self.data[slot_offset:slot_offset + Config.int_size] = value.to_bytes(
+            Config.int_size, byteorder=Config.byteorder, signed=True
+        )
+        return slot
+
     def read(self, slot):
         """
         Reads a 64-bit signed integer from the specified slot.
@@ -72,3 +101,12 @@ class Page:
         if start < 0 or start > self.num_records or end < 0 or end > self.num_records or start > end:
             raise IndexError(f"Invalid range [{start}, {end}) out of bounds [0, {self.num_records}) or start > end")
         return [self.read(i) for i in range(start, end)]
+
+    def __repr__(self):
+        """Provide a concise, human-readable view when pages are printed."""
+        return (
+            f"Page(id={self.page_id}, records={self.num_records}, "
+            f"capacity={self.capacity})"
+        )
+
+    __str__ = __repr__
