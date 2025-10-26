@@ -31,7 +31,7 @@ def test_random_key_insertions():
       rec = [-1 for _ in range(Config.base_meta_columns)] + [key] + [randint(0, 20) for _ in range(table.num_columns - 1)]
       records[key] = rec
       table.insert_record(rec)
-  
+
   for i in range(number_of_records):
     record = table.get_record(i)
     assert record[Config.rid_column] == i

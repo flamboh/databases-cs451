@@ -49,7 +49,7 @@ class Page:
 
     def write_slot(self, slot, value):
         """
-        Writes a 64-bit signed integer to the specified slot.
+        Writes a 64-bit signed integer to the specified slot in the page.
         
         :param slot: Slot index to write to.
         :param value: Integer value to write.
@@ -57,10 +57,25 @@ class Page:
         """
         if slot < 0 or slot >= Config.records_per_page:
             raise IndexError(f"Index {slot} out of bounds [0, {Config.records_per_page})")
+        # Enforce contiguous growth; allow overwrite of existing slots.
+        if slot > self.num_records:
+            raise IndexError(f"Cannot write to slot {slot}: current length is {self.num_records}.")
+        if slot == self.num_records:
+            if not self.has_capacity():
+                return False
+            slot_offset = self.get_offset(slot)
+            self.data[slot_offset:slot_offset + Config.int_size] = value.to_bytes(
+                Config.int_size, byteorder=Config.byteorder, signed=True
+            )
+            self.num_records += 1
+            return slot
+        # Overwrite existing slot
         slot_offset = self.get_offset(slot)
-        self.data[slot_offset:slot_offset + Config.int_size] = value.to_bytes(Config.int_size, byteorder=Config.byteorder, signed=True)
+        self.data[slot_offset:slot_offset + Config.int_size] = value.to_bytes(
+            Config.int_size, byteorder=Config.byteorder, signed=True
+        )
         return slot
-    
+
     def read(self, slot):
         """
         Reads a 64-bit signed integer from the specified slot.
