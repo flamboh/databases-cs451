@@ -115,9 +115,20 @@ class PageDirectory:
         :param rid: int - the RID of the record
         :return: bool - whether the record was deleted
         """
+        if rid < 0 or rid >= self.num_base_records:
+            return False
+
         range_id = rid // self.records_per_range # selects range
         page_index = (rid // Config.records_per_page) % Config.pages_per_range # select logical page
+        if range_id not in self.page_directory or not self.page_directory[range_id]["base"]:
+            return False
+        if page_index >= len(self.page_directory[range_id]["base"]):
+            return False
+
         slot_index = rid % Config.records_per_page # select slot
+        current_rid = self.page_directory[range_id]["base"][page_index][Config.rid_column].read(slot_index)
+        if current_rid == Config.deleted_record_rid_value:
+            return True
         self.page_directory[range_id]["base"][page_index][Config.rid_column].write_slot(slot_index, Config.deleted_record_rid_value)
         return True
 
@@ -157,8 +168,7 @@ class Table:
         :param rid: int - the RID of the record
         :return: bool - whether the record was deleted
         """
-        self.page_directory.delete_record(rid)
-        return True
+        return self.page_directory.delete_record(rid)
 
     def __merge(self):
         print("merge is happening")
