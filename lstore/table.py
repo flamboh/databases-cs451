@@ -25,7 +25,7 @@ class Record:
         return f"{self.rid}, {self.key}, {self.columns}"
 
     def __repr__(self):
-        return "Record(rid={self.rid}, key={self.key}, columns={self.columns}, is_tail={self.is_tail})"
+        return f"Record(rid={self.rid}, key={self.key}, columns={self.columns}, is_tail={self.is_tail})"
 
 class PageDirectory:
     def __init__(self, num_columns: int, num_ranges: int = Config.initial_page_ranges):
