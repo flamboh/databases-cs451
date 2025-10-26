@@ -49,15 +49,14 @@ class PageDirectory:
         """
         
         expected_len = (Config.tail_meta_columns if is_tail else Config.base_meta_columns) + self.num_columns
-        if len(columns) != expected_len:
+        num_columns = len(columns)
+        if num_columns != expected_len:
             raise ValueError(f"Expected {expected_len} columns ({"tail" if is_tail else "base"} meta columns + {self.num_columns} data columns), got {len(columns)}")
         rid = self.num_base_records if not is_tail else self.num_tail_records
 
         range_id = rid // self.records_per_range # selects range
         page_index = (rid // Config.records_per_page) % Config.pages_per_range # select logical page
-        # slot_index = rid % Config.records_per_page # select slot
         columns[Config.rid_column] = rid
-        num_columns = len(columns)
 
         if range_id >= self.num_ranges:
             for i in range(range_id, self.num_ranges * 2):
