@@ -51,6 +51,7 @@ def test_delete_record():
     table.insert_record(rec)
 
   for i in range(number_of_records):
-    table.delete_record(i)
+    assert table.delete_record(i)
     record = table.get_record(i)
     assert record[Config.rid_column] == Config.deleted_record_rid_value
+  assert table.delete_record(0)
