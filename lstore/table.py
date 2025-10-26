@@ -56,7 +56,6 @@ class PageDirectory:
         range_id = rid // self.records_per_range # selects range
         page_index = (rid // Config.records_per_page) % Config.pages_per_range # select logical page
         # slot_index = rid % Config.records_per_page # select slot
-        print("adding record", rid, range_id, page_index)
         columns[Config.rid_column] = rid
         num_columns = len(columns)
 
@@ -89,7 +88,6 @@ class PageDirectory:
         range_id = rid // self.records_per_range # selects range
         page_index = (rid // Config.records_per_page) % Config.pages_per_range # select logical page
         slot_index = rid % Config.records_per_page # select slot
-        print(rid, range_id, page_index, slot_index)
         num_columns = Config.base_meta_columns + self.num_columns
         columns = [self.page_directory[range_id][("tail" if is_tail else "base")][page_index][i].read(slot_index) for i in range(num_columns)]
         return columns
