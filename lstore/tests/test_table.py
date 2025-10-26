@@ -14,16 +14,16 @@ def test_table_add_record_prints_page_directory():
     except Exception as exc:  # pragma: no cover - surface unexpected failure for debugging
         pytest.fail(f"add_record raised {exc!r}")
 
-    print(table.page_directory.page_directory)
+    # print(table.page_directory.page_directory)
 
-    print(table.get_record(0))
+    # print(table.get_record(0))
 
 
 def test_random_key_insertions():
   table = Table("grades", num_columns=5, key=0)
   records = {}
 
-  number_of_records = 30
+  number_of_records = 200000
   seed(3562901)
 
   for i in range(0, number_of_records):

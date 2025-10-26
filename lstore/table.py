@@ -51,16 +51,24 @@ class PageDirectory:
         rid = self.num_base_records if not is_tail else self.num_tail_records
 
         range_id = rid // self.records_per_range # selects range
-        page_index = range_id % Config.pages_per_range # select logical page
+        page_index = (rid // Config.records_per_page) % Config.pages_per_range # select logical page
         # slot_index = rid % Config.records_per_page # select slot
         print("adding record", rid, range_id, page_index)
         columns[Config.rid_column] = rid
         num_columns = len(columns)
 
+        if range_id >= self.num_ranges:
+            for i in range(range_id, self.num_ranges * 2):
+                self.page_directory[i] = {
+                    "base": [],
+                    "tail": []
+                }
+            self.num_ranges *= 2
+        
         if rid % Config.records_per_page == 0:
             self.page_directory[range_id][("tail" if is_tail else "base")].append([Page() for _ in range(num_columns)])
         for i, column in enumerate(columns):
-            print(self.page_directory[range_id][("tail" if is_tail else "base")])   
+            # print(self.page_directory[range_id][("tail" if is_tail else "base")])   
             self.page_directory[range_id][("tail" if is_tail else "base")][page_index][i].write(column)
         
         if not is_tail:
@@ -70,7 +78,7 @@ class PageDirectory:
         
     def get_base_record_from_rid(self, rid: int):
         range_id = rid // self.records_per_range # selects range
-        page_index = range_id % Config.pages_per_range # select logical page
+        page_index = (rid // Config.records_per_page) % Config.pages_per_range # select logical page
         slot_index = rid % Config.records_per_page # select slot
         print(rid, range_id, page_index, slot_index)
         num_columns = Config.base_meta_columns + self.num_columns
