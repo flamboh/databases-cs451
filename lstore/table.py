@@ -44,10 +44,13 @@ class PageDirectory:
     def add_record(self, columns: list[int], is_tail: bool = False):
         """
         Adds a record to the page directory
-        :param columns: list[int] - the columns of the record
+        :param columns: list[int] - the columns of the record, includes meta columns
         :param is_tail: bool - whether the record is a tail record
         """
-        # Need to check if num_ranges is reached
+        
+        expected_len = (Config.tail_meta_columns if is_tail else Config.base_meta_columns) + self.num_columns
+        if len(columns) != expected_len:
+            raise ValueError(f"Expected {expected_len} columns ({"tail" if is_tail else "base"} meta columns + {self.num_columns} data columns), got {len(columns)}")
         rid = self.num_base_records if not is_tail else self.num_tail_records
 
         range_id = rid // self.records_per_range # selects range
@@ -107,7 +110,7 @@ class Table:
         :param rid: int - the RID of the record
         :return: list[int] - the columns of the record
         """
-        return self.page_directory.get_base_record_from_rid(rid)
+        return self.page_directory.get_record_from_rid(rid, is_tail=False)
 
     def insert_record(self, columns: list[int]):
         """
