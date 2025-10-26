@@ -15,3 +15,4 @@ class Config:
     initial_page_ranges = 1
     base_meta_columns = 4
     tail_meta_columns = 5
+    deleted_record_rid_value = -1

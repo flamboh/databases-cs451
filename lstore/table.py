@@ -49,15 +49,14 @@ class PageDirectory:
         """
         
         expected_len = (Config.tail_meta_columns if is_tail else Config.base_meta_columns) + self.num_columns
-        if len(columns) != expected_len:
+        num_columns = len(columns)
+        if num_columns != expected_len:
             raise ValueError(f"Expected {expected_len} columns ({"tail" if is_tail else "base"} meta columns + {self.num_columns} data columns), got {len(columns)}")
         rid = self.num_base_records if not is_tail else self.num_tail_records
 
         range_id = rid // self.records_per_range # selects range
         page_index = (rid // Config.records_per_page) % Config.pages_per_range # select logical page
-        # slot_index = rid % Config.records_per_page # select slot
         columns[Config.rid_column] = rid
-        num_columns = len(columns)
 
         if range_id >= self.num_ranges:
             for i in range(range_id, self.num_ranges * 2):
@@ -88,7 +87,7 @@ class PageDirectory:
         range_id = rid // self.records_per_range # selects range
         page_index = (rid // Config.records_per_page) % Config.pages_per_range # select logical page
         slot_index = rid % Config.records_per_page # select slot
-        num_columns = Config.base_meta_columns + self.num_columns
+        num_columns = (Config.tail_meta_columns if is_tail else Config.base_meta_columns) + self.num_columns
         columns = [self.page_directory[range_id][("tail" if is_tail else "base")][page_index][i].read(slot_index) for i in range(num_columns)]
         return columns
 
@@ -109,6 +108,29 @@ class PageDirectory:
             current_record = self.get_record_from_rid(current_record[Config.indirection_column], is_tail=True)
             i += 1
         return current_record
+
+    def delete_record(self, rid: int):
+        """
+        Logical deletion of a record from the table
+        :param rid: int - the RID of the record
+        :return: bool - whether the record was deleted
+        """
+        if rid < 0 or rid >= self.num_base_records:
+            return False
+
+        range_id = rid // self.records_per_range # selects range
+        page_index = (rid // Config.records_per_page) % Config.pages_per_range # select logical page
+        if range_id not in self.page_directory or not self.page_directory[range_id]["base"]:
+            return False
+        if page_index >= len(self.page_directory[range_id]["base"]):
+            return False
+
+        slot_index = rid % Config.records_per_page # select slot
+        current_rid = self.page_directory[range_id]["base"][page_index][Config.rid_column].read(slot_index)
+        if current_rid == Config.deleted_record_rid_value:
+            return True
+        self.page_directory[range_id]["base"][page_index][Config.rid_column].write_slot(slot_index, Config.deleted_record_rid_value)
+        return True
 
 class Table:
     """
@@ -139,6 +161,14 @@ class Table:
         """
         self.page_directory.add_record(columns)
         return True
+
+    def delete_record(self, rid: int):
+        """
+        Deletes a record from the table
+        :param rid: int - the RID of the record
+        :return: bool - whether the record was deleted
+        """
+        return self.page_directory.delete_record(rid)
 
     def __merge(self):
         print("merge is happening")
