@@ -46,6 +46,20 @@ class Page:
         self.data[slot_offset:slot_offset + Config.int_size] = value.to_bytes(Config.int_size, byteorder=Config.byteorder, signed=True)
         self.num_records += 1
         return self.num_records - 1
+
+    def write_slot(self, slot, value):
+        """
+        Writes a 64-bit signed integer to the specified slot.
+        
+        :param slot: Slot index to write to.
+        :param value: Integer value to write.
+        :return: The index (slot) where the value was written, or False if the page is full.
+        """
+        if slot < 0 or slot >= Config.records_per_page:
+            raise IndexError(f"Index {slot} out of bounds [0, {Config.records_per_page})")
+        slot_offset = self.get_offset(slot)
+        self.data[slot_offset:slot_offset + Config.int_size] = value.to_bytes(Config.int_size, byteorder=Config.byteorder, signed=True)
+        return slot
     
     def read(self, slot):
         """
@@ -72,3 +86,12 @@ class Page:
         if start < 0 or start > self.num_records or end < 0 or end > self.num_records or start > end:
             raise IndexError(f"Invalid range [{start}, {end}) out of bounds [0, {self.num_records}) or start > end")
         return [self.read(i) for i in range(start, end)]
+
+    def __repr__(self):
+        """Provide a concise, human-readable view when pages are printed."""
+        return (
+            f"Page(id={self.page_id}, records={self.num_records}, "
+            f"capacity={self.capacity})"
+        )
+
+    __str__ = __repr__
