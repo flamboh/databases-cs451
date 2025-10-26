@@ -88,7 +88,7 @@ class PageDirectory:
         range_id = rid // self.records_per_range # selects range
         page_index = (rid // Config.records_per_page) % Config.pages_per_range # select logical page
         slot_index = rid % Config.records_per_page # select slot
-        num_columns = Config.base_meta_columns + self.num_columns
+        num_columns = (Config.tail_meta_columns if is_tail else Config.base_meta_columns) + self.num_columns
         columns = [self.page_directory[range_id][("tail" if is_tail else "base")][page_index][i].read(slot_index) for i in range(num_columns)]
         return columns
 
@@ -109,6 +109,18 @@ class PageDirectory:
             current_record = self.get_record_from_rid(current_record[Config.indirection_column], is_tail=True)
             i += 1
         return current_record
+
+    def delete_record(self, rid: int):
+        """
+        Logical deletion of a record from the table
+        :param rid: int - the RID of the record
+        :return: bool - whether the record was deleted
+        """
+        range_id = rid // self.records_per_range # selects range
+        page_index = (rid // Config.records_per_page) % Config.pages_per_range # select logical page
+        slot_index = rid % Config.records_per_page # select slot
+        self.page_directory[range_id]["base"][page_index][Config.rid_column].write_slot(slot_index, Config.deleted_record_rid_value)
+        return True
 
 class Table:
     """
@@ -138,6 +150,15 @@ class Table:
         :param columns: list[int] - the columns of the record
         """
         self.page_directory.add_record(columns)
+        return True
+
+    def delete_record(self, rid: int):
+        """
+        Deletes a record from the table
+        :param rid: int - the RID of the record
+        :return: bool - whether the record was deleted
+        """
+        self.page_directory.delete_record(rid)
         return True
 
     def __merge(self):
