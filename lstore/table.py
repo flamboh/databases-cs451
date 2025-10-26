@@ -93,6 +93,23 @@ class PageDirectory:
         return columns
 
 
+    def get_version_of_record_from_base_rid(self, base_rid: int, version: int = 0):
+        """
+        Gets a version of a record from the table, defaults to latest
+        :param base_rid: int - the RID of the base record
+        :param version: int - the relative version of the record, increase to get older versions, defaults to latest
+        :return: list[int] - the columns of the record
+        """
+        base_record = self.get_record_from_rid(base_rid, is_tail=False)
+        if version == -1:
+            return base_record
+        i = 0
+        current_record = base_record
+        while i < version:
+            current_record = self.get_record_from_rid(current_record[Config.indirection_column], is_tail=True)
+            i += 1
+        return current_record
+
 class Table:
     """
     :param name: string         #Table name
