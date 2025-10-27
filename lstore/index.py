@@ -6,6 +6,7 @@ from typing import Iterable, List, Optional, Tuple
 
 from lstore.bplus import BPlusTree
 
+from lstore.table import Table
 
 class Index:
     """Maintains secondary structures to accelerate column lookups."""
@@ -67,6 +68,7 @@ class Index:
     # Index lifecycle
     # ------------------------------------------------------------------
     def create_index(self, column_number: int) -> bool:
+        raise NotImplementedError('create_index not implemented yet')
         if self.indices[column_number] is not None:
             return False
 
@@ -76,6 +78,7 @@ class Index:
         return True
 
     def drop_index(self, column_number: int) -> bool:
+        raise NotImplementedError('drop_index not implemented yet')
         if column_number == self.table.key:
             # Primary key index must always exist.
             return False
@@ -87,7 +90,7 @@ class Index:
     # ------------------------------------------------------------------
     # Bulk loading helpers
     # ------------------------------------------------------------------
-    def _bulk_load(self, column_number: int, tree: BPlusTree) -> None:
+    ''' def _bulk_load(self, column_number: int, tree: BPlusTree) -> None:
         for rid, row in self._iterate_existing_rows():
             value = row[column_number]
             if value is None:
@@ -104,4 +107,4 @@ class Index:
                 record = self.table.get_record_by_rid(rid)
                 if record is None:
                     continue
-                yield rid, record.columns
+                yield rid, record.columns'''
