@@ -102,7 +102,6 @@ class PageDirectory:
 
         if is_tail and base_rid != Config.null_value:
             self.update_base_record(base_rid, columns)
-            ## update tail record indirection
         
         return rid
 
@@ -217,7 +216,7 @@ class Table:
 
     def get_version_of_record(self, rid: int, version: int = 0):
         """
-        Gets a version of a record from the table
+        Gets a version of a record from the table ## update to be cumulative
         :param rid: int - the RID of the record
         :param version: int - the relative version of the record, increase to get older versions, defaults to latest
         :return: list[int] - the columns of the record
