@@ -63,7 +63,7 @@ def test_delete_record():
         indirection_page = page_directory.page_directory[range_id]["base"][page_index][Config.indirection_column]
         assert indirection_page.read(slot_index) == Config.deleted_record_value
 
-    assert grades_table.delete_record(0)
+    assert not grades_table.delete_record(0)
 
 
 def test_insert_tail_record():
