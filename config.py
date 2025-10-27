@@ -6,6 +6,8 @@ class Config:
     int_size = 8
     records_per_page = page_size // int_size
     pages_per_range = 16
+    records_per_range = records_per_page * pages_per_range
+    range_cap = records_per_range * 2
     byteorder = 'little'
     indirection_column = 0
     rid_column = 1
@@ -15,4 +17,4 @@ class Config:
     initial_page_ranges = 1
     base_meta_columns = 4
     tail_meta_columns = 5
-    deleted_record_rid_value = -1
+    null_value = -2**63
