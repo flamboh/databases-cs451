@@ -173,7 +173,7 @@ class PageDirectory:
 
     def get_updated_record_from_base_rid(self, base_rid: int):
         """
-        Gets an updated record from the table
+        Gets a cumulative updated record from the table
         :param base_rid: int - the RID of the base record
         :return: list[int] - the columns of the record
         """
