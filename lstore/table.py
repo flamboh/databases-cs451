@@ -156,7 +156,7 @@ class PageDirectory:
 
     def get_version_of_record_from_base_rid(self, base_rid: int, version: int = 0):
         """
-        Gets a version of a record from the table, defaults to latest
+        Gets a cumulative updated version of a record from the table, defaults to latest
         :param base_rid: int - the RID of the base record
         :param version: int - the relative version of the record, increase to get older versions, defaults to latest
         :return: list[int] - the columns of the record
@@ -165,11 +165,16 @@ class PageDirectory:
         if version == -1:
             return base_record
         i = 0
+        num_columns = self.num_columns + Config.tail_meta_columns
+        result_record = base_record.copy()
         current_record = base_record
-        while i < version + 1:
+        while i < version + 1 and current_record is not base_record:
             current_record = self.get_record_from_rid(current_record[Config.indirection_column])
+            for i in range(Config.tail_meta_columns, num_columns):
+                if current_record[i] != Config.null_value:
+                    result_record[i] = current_record[i]
             i += 1
-        return current_record
+        return result_record
 
     def get_updated_record_from_base_rid(self, base_rid: int):
         """
