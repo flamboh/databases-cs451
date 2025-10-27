@@ -6,8 +6,6 @@ from typing import Iterable, List, Optional, Tuple
 
 from lstore.bplus import BPlusTree
 
-from lstore.table import Table
-
 class Index:
     """Maintains secondary structures to accelerate column lookups."""
 
