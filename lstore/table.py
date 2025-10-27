@@ -134,7 +134,7 @@ class PageDirectory:
         schema_encoding = 0
         num_data_columns = len(tail_columns) - Config.tail_meta_columns
         for i in range(num_data_columns):
-            if tail_columns[i + Config.tail_meta_columns] == Config.null_value:
+            if tail_columns[i + Config.tail_meta_columns] != Config.null_value:
                 schema_encoding |= 1 << (num_data_columns - i - 1)
         return schema_encoding
 
@@ -170,6 +170,39 @@ class PageDirectory:
             current_record = self.get_record_from_rid(current_record[Config.indirection_column])
             i += 1
         return current_record
+
+    def get_updated_record_from_base_rid(self, base_rid: int):
+        """
+        Gets an updated record from the table
+        :param base_rid: int - the RID of the base record
+        :return: list[int] - the columns of the record
+        """
+        base_record = self.get_record_from_rid(base_rid)
+        result_record = base_record.copy()
+        
+        
+        num_columns = self.num_columns + Config.tail_meta_columns
+        
+        
+        indirection_rid = base_record[Config.indirection_column]
+        if indirection_rid == Config.null_value:
+            return base_record
+
+        current_record = result_record
+        schema_encoding = base_record[Config.schema_encoding_column]
+        while schema_encoding != 0 and indirection_rid != Config.null_value and current_record is not base_record :
+            current_record = self.get_record_from_rid(indirection_rid)
+            next_indirection = current_record[Config.indirection_column]
+            updated_in_this_iter = 0
+            for i in range(Config.tail_meta_columns, num_columns):
+                bit = (1 << (num_columns - i - 1))
+                if schema_encoding & bit:
+                    if current_record[i] != Config.null_value:
+                        result_record[i - 1] = current_record[i]
+                        schema_encoding &= ~bit
+                        updated_in_this_iter |= bit
+            indirection_rid = next_indirection
+        return result_record
 
     def delete_record(self, rid: int):
         """
@@ -224,6 +257,14 @@ class Table:
         :return: list[int] - the columns of the record
         """
         return self.page_directory.get_version_of_record_from_base_rid(rid, version)
+
+    def get_updated_record(self, rid: int):
+        """
+        Gets an updated record from the table
+        :param rid: int - the RID of the record
+        :return: list[int] - the columns of the record
+        """
+        return self.page_directory.get_updated_record_from_base_rid(rid)
 
     def insert_record(self, columns: list[int], is_tail: bool = False, base_rid: int = Config.null_value):
         """
