@@ -80,6 +80,8 @@ class PageDirectory:
             rid = self.encode_rid(base_range, 1, offset)
             self.tail_offsets[base_range] += 1
             columns[Config.schema_encoding_column] = self.build_schema_encoding(columns)
+            columns[Config.indirection_column] = self.get_version_of_record_from_base_rid(base_rid, -1)[Config.rid_column]
+            columns[Config.base_rid_column] = base_rid
 
         columns[Config.timestamp_column] = int(time())
         range_id, _, page_index, _ = self.decode_rid(rid)

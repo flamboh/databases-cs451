@@ -71,7 +71,7 @@ def test_insert_tail_record():
     rid = table.page_directory.encode_rid(range_id, 0, offset)
     tail_record = table.get_version_of_record(rid, 0)
     base_record = table.get_record(tail_record[Config.base_rid_column])
-  print("test", tail_record)
+  print("tail", tail_record)
   print("scehma encoding", bin(tail_record[Config.schema_encoding_column]))
   print("base record", base_record)
   print("scehma encoding", bin(base_record[Config.schema_encoding_column]))
