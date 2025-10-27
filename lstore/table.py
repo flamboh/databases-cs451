@@ -80,7 +80,7 @@ class PageDirectory:
             rid = self.encode_rid(base_range, 1, offset)
             self.tail_offsets[base_range] += 1
             columns[Config.schema_encoding_column] = self.build_schema_encoding(columns)
-            columns[Config.indirection_column] = self.get_version_of_record_from_base_rid(base_rid, -1)[Config.rid_column]
+            columns[Config.indirection_column] = self.get_relative_version_of_record_from_base_rid(base_rid, -1)[Config.rid_column]
             columns[Config.base_rid_column] = base_rid
 
         columns[Config.timestamp_column] = int(time())
@@ -154,36 +154,41 @@ class PageDirectory:
         return columns
 
 
-    def get_version_of_record_from_base_rid(self, base_rid: int, version: int = 0):
+    def get_relative_version_of_record_from_base_rid(self, base_rid: int, version: int = -1):
         """
         Gets a cumulative updated version of a record from the table, defaults to latest
         :param base_rid: int - the RID of the base record
         :param version: int - the relative version of the record, increase to get older versions, defaults to latest
-        :return: list[int] - the columns of the record
+        :return: list[int] - the columns of the record, with a tail record
         """
         base_record = self.get_record_from_rid(base_rid)
+        result_record = base_record[:Config.base_meta_columns] + [base_record[Config.rid_column]] + base_record[Config.base_meta_columns:]
+        if version == 0:
+            return result_record
         if version == -1:
-            return base_record
-        i = 0
+            return self.get_cumulative_updated_record_from_base_rid(base_rid)
+        i = -1
         num_columns = self.num_columns + Config.tail_meta_columns
-        result_record = base_record.copy()
-        current_record = base_record
-        while i < version + 1 and current_record is not base_record:
-            current_record = self.get_record_from_rid(current_record[Config.indirection_column])
-            for i in range(Config.tail_meta_columns, num_columns):
-                if current_record[i] != Config.null_value:
-                    result_record[i] = current_record[i]
-            i += 1
+        current_record = self.get_record_from_rid(base_record[Config.indirection_column])
+        while current_record is not base_record:
+            next_indirection = current_record[Config.indirection_column]
+            current_record = self.get_record_from_rid(next_indirection)
+            if i > version: continue
+            for j in range(Config.tail_meta_columns, num_columns):
+                if current_record[j] != Config.null_value:
+                    result_record[j] = current_record[j]
+            i -= 1
         return result_record
 
-    def get_updated_record_from_base_rid(self, base_rid: int):
+
+    def get_cumulative_updated_record_from_base_rid(self, base_rid: int):
         """
         Gets a cumulative updated record from the table
         :param base_rid: int - the RID of the base record
         :return: list[int] - the columns of the record
         """
         base_record = self.get_record_from_rid(base_rid)
-        result_record = base_record.copy()
+        result_record = base_record[:Config.base_meta_columns] + [base_record[Config.rid_column]] + base_record[Config.base_meta_columns:]
         
         
         num_columns = self.num_columns + Config.tail_meta_columns
@@ -203,7 +208,7 @@ class PageDirectory:
                 bit = (1 << (num_columns - i - 1))
                 if schema_encoding & bit:
                     if current_record[i] != Config.null_value:
-                        result_record[i - 1] = current_record[i]
+                        result_record[i] = current_record[i]
                         schema_encoding &= ~bit
                         updated_in_this_iter |= bit
             indirection_rid = next_indirection
@@ -254,22 +259,22 @@ class Table:
         """
         return self.page_directory.get_record_from_rid(rid)
 
-    def get_version_of_record(self, rid: int, version: int = 0):
+    def get_relative_version_of_record(self, rid: int, version: int = -1):
         """
-        Gets a version of a record from the table ## update to be cumulative
+        Gets a relative version of a record from the table
         :param rid: int - the RID of the record
         :param version: int - the relative version of the record, increase to get older versions, defaults to latest
         :return: list[int] - the columns of the record
         """
-        return self.page_directory.get_version_of_record_from_base_rid(rid, version)
+        return self.page_directory.get_relative_version_of_record_from_base_rid(rid, version)
 
-    def get_updated_record(self, rid: int):
+    def get_cumulative_updated_record(self, rid: int):
         """
         Gets an updated record from the table
         :param rid: int - the RID of the record
         :return: list[int] - the columns of the record
         """
-        return self.page_directory.get_updated_record_from_base_rid(rid)
+        return self.page_directory.get_cumulative_updated_record_from_base_rid(rid)
 
     def insert_record(self, columns: list[int], is_tail: bool = False, base_rid: int = Config.null_value):
         """
