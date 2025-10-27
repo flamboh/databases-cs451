@@ -48,10 +48,20 @@ def test_delete_record():
         )
         grades_table.insert_record(record_values)
 
+    page_directory = grades_table.page_directory
+
     for record_index in range(record_count):
         assert grades_table.delete_record(record_index)
-        record = grades_table.get_record(record_index)
-        assert record[Config.indirection_column] == Config.deleted_record_value
+
+        with pytest.raises(RuntimeError):
+            grades_table.get_record(record_index)
+
+        range_id = record_index // Config.records_per_range
+        page_index = (record_index // Config.records_per_page) % Config.pages_per_range
+        slot_index = record_index % Config.records_per_page
+
+        indirection_page = page_directory.page_directory[range_id]["base"][page_index][Config.indirection_column]
+        assert indirection_page.read(slot_index) == Config.deleted_record_value
 
     assert grades_table.delete_record(0)
 
