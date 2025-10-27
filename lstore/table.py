@@ -322,7 +322,13 @@ class Table:
         :param base_rid: int - the RID of the base record, only used for tail records
         :return: int - the RID of the record
         """
-        return self.page_directory.add_record(columns, is_tail=is_tail, base_rid=base_rid)
+        rid = self.page_directory.add_record(columns, is_tail=is_tail, base_rid=base_rid)
+
+        if not is_tail:
+            data_columns = columns[Config.base_meta_columns : Config.base_meta_columns + self.num_columns]
+            self.index.add(rid, data_columns)
+
+        return rid
 
     def delete_record(self, rid: int):
         """
@@ -330,7 +336,18 @@ class Table:
         :param rid: int - the RID of the base record
         :return: bool - whether the record was deleted
         """
-        return self.page_directory.delete_record(rid)
+        try:
+            base_record = self.page_directory.get_record_from_rid(rid)
+        except RuntimeError:
+            return False
+
+        data_columns = base_record[Config.base_meta_columns : Config.base_meta_columns + self.num_columns]
+        self.index.remove(rid, data_columns)
+
+        try:
+            return self.page_directory.delete_record(rid)
+        except ValueError:
+            return False
 
     def __merge(self):
         print("merge is happening")
