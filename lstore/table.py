@@ -191,25 +191,28 @@ class PageDirectory:
             return self.get_cumulative_updated_record_from_base_rid(base_rid)
 
         # Gather the tail chain so we can walk versions from oldest to newest.
-        tail_chain = []
+        tails_newest_first = []
         current_rid = base_record[Config.indirection_column]
         while current_rid != Config.null_value:
             tail_record = self.get_record_from_rid(current_rid)
-            tail_chain.append(tail_record)
+            tails_newest_first.append(tail_record)
             current_rid = tail_record[Config.indirection_column]
 
-        # version = -2 means "latest minus one", etc.
-        records_to_apply = len(tail_chain) + version + 1
+        tails_oldest_first = tails_newest_first[::-1]
         data_column_count = self.num_columns + Config.tail_meta_columns
+        # version = -2 means "latest minus one", etc.
+        if version < -1:
+            skip_newest = (-1 - version)
+            apply_count = max(0, len(tails_oldest_first) - skip_newest)
+        else:
+            apply_count = min(version, len(tails_oldest_first))
 
-        for tail_index in range(min(records_to_apply, len(tail_chain))):
-            tail_record = tail_chain[tail_index]
+        for tail_record in tails_oldest_first[:apply_count]:
             for column_index in range(Config.tail_meta_columns, data_column_count):
                 if tail_record[column_index] != Config.null_value:
                     result_record[column_index] = tail_record[column_index]
 
         return result_record
-
 
     def get_cumulative_updated_record_from_base_rid(self, base_rid: int):
         """
