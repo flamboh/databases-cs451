@@ -46,7 +46,7 @@ class PageDirectory:
         return range_id * Config.range_cap + segment * Config.records_per_range + offset
     
     def decode_rid(self, rid: int):
-        range_id  = rid // Config.records_per_range
+        range_id  = rid // Config.range_cap
         seg_block = rid % Config.range_cap
         segment   = seg_block // Config.records_per_range
         offset    = seg_block % Config.records_per_range
@@ -80,18 +80,21 @@ class PageDirectory:
             rid = self.encode_rid(base_range, 1, offset)
             self.tail_offsets[base_range] += 1
             columns[Config.schema_encoding_column] = self.build_schema_encoding(columns)
-            columns[Config.indirection_column] = self.get_relative_version_of_record_from_base_rid(base_rid, -1)[Config.rid_column]
+            base_record = self.get_record_from_rid(base_rid)
+            if base_record[Config.indirection_column] != Config.null_value:
+                columns[Config.indirection_column] = base_record[Config.indirection_column]
+            else:
+                columns[Config.indirection_column] = rid
             columns[Config.base_rid_column] = base_rid
 
         columns[Config.timestamp_column] = int(time())
         range_id, _, page_index, _ = self.decode_rid(rid)
         segment_key = "tail" if is_tail else "base"
         
-        if page_index >= len(self.page_directory[range_id][segment_key]):
+        while page_index >= len(self.page_directory[range_id][segment_key]):
             self.page_directory[range_id][segment_key].append([Page() for _ in range(num_columns)])
         
-        if rid % Config.records_per_page == 0:
-            self.page_directory[range_id][segment_key].append([Page() for _ in range(num_columns)])
+
         columns[Config.rid_column] = rid
         for i, value in enumerate(columns):
             physical_page = self.page_directory[range_id][segment_key][page_index][i]
