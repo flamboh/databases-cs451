@@ -18,3 +18,4 @@ class Config:
     base_meta_columns = 4
     tail_meta_columns = 5
     null_value = -2**63
+    deleted_record_value = -1

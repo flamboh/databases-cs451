@@ -1,5 +1,6 @@
 from config import Config
 
+
 class Page:
     """
     The Page class represents a fixed-size columnar page, storing 64-bit integer values.
@@ -23,14 +24,14 @@ class Page:
         """
         return self.num_records < Config.records_per_page
 
-    def get_offset(self, slot):
+    def get_offset(self, slot_index):
         """
         Gets the offset of the specified slot in the page.
         
-        :param slot: Slot index to get the offset of.
+        :param slot_index: Slot index to get the offset of.
         :return: The offset of the specified slot.
         """
-        return slot * Config.int_size
+        return slot_index * Config.int_size
     
 
     def write(self, value):
@@ -43,50 +44,66 @@ class Page:
         if not self.has_capacity():
             return False
         slot_offset = self.get_offset(self.num_records)
-        self.data[slot_offset:slot_offset + Config.int_size] = value.to_bytes(Config.int_size, byteorder=Config.byteorder, signed=True)
+        self.data[slot_offset:slot_offset + Config.int_size] = value.to_bytes(
+            Config.int_size,
+            byteorder=Config.byteorder,
+            signed=True,
+        )
         self.num_records += 1
         return self.num_records - 1
 
-    def write_slot(self, slot, value):
+    def write_slot(self, slot_index, value):
         """
         Writes a 64-bit signed integer to the specified slot in the page.
         
-        :param slot: Slot index to write to.
+        :param slot_index: Slot index to write to.
         :param value: Integer value to write.
         :return: The index (slot) where the value was written, or False if the page is full.
         """
-        if slot < 0 or slot >= Config.records_per_page:
-            raise IndexError(f"Index {slot} out of bounds [0, {Config.records_per_page})")
-        # Enforce contiguous growth; allow overwrite of existing slots.
-        if slot > self.num_records:
-            raise IndexError(f"Cannot write to slot {slot}: current length is {self.num_records}.")
-        if slot == self.num_records:
+        if slot_index < 0 or slot_index >= Config.records_per_page:
+            raise IndexError(f"Index {slot_index} out of bounds [0, {Config.records_per_page})")
+
+        # Writes must either extend the column by one (append) or target an existing slot.
+        if slot_index > self.num_records:
+            raise IndexError(
+                f"Cannot write to slot {slot_index}: current length is {self.num_records}."
+            )
+
+        if slot_index == self.num_records:
             if not self.has_capacity():
                 return False
-            slot_offset = self.get_offset(slot)
+            slot_offset = self.get_offset(slot_index)
             self.data[slot_offset:slot_offset + Config.int_size] = value.to_bytes(
-                Config.int_size, byteorder=Config.byteorder, signed=True
+                Config.int_size,
+                byteorder=Config.byteorder,
+                signed=True,
             )
             self.num_records += 1
-            return slot
-        # Overwrite existing slot
-        slot_offset = self.get_offset(slot)
-        self.data[slot_offset:slot_offset + Config.int_size] = value.to_bytes(
-            Config.int_size, byteorder=Config.byteorder, signed=True
-        )
-        return slot
+            return slot_index
 
-    def read(self, slot):
+        slot_offset = self.get_offset(slot_index)
+        self.data[slot_offset:slot_offset + Config.int_size] = value.to_bytes(
+            Config.int_size,
+            byteorder=Config.byteorder,
+            signed=True,
+        )
+        return slot_index
+
+    def read(self, slot_index):
         """
         Reads a 64-bit signed integer from the specified slot.
 
-        :param slot: Slot index to read from.
+        :param slot_index: Slot index to read from.
         :return: The integer value at the specified slot.
         """
-        if slot < 0 or slot >= self.num_records:
-            raise IndexError(f"Index {slot} out of bounds [0, {self.num_records})")
-        slot_offset = self.get_offset(slot)
-        return int.from_bytes(self.data[slot_offset:slot_offset + Config.int_size], byteorder=Config.byteorder, signed=True)
+        if slot_index < 0 or slot_index >= self.num_records:
+            raise IndexError(f"Index {slot_index} out of bounds [0, {self.num_records})")
+        slot_offset = self.get_offset(slot_index)
+        return int.from_bytes(
+            self.data[slot_offset:slot_offset + Config.int_size],
+            byteorder=Config.byteorder,
+            signed=True,
+        )
 
     def read_range(self, start=0, end=None):
         """
@@ -100,7 +117,7 @@ class Page:
             end = self.num_records
         if start < 0 or start > self.num_records or end < 0 or end > self.num_records or start > end:
             raise IndexError(f"Invalid range [{start}, {end}) out of bounds [0, {self.num_records}) or start > end")
-        return [self.read(i) for i in range(start, end)]
+        return [self.read(slot_index) for slot_index in range(start, end)]
 
     def __repr__(self):
         """Provide a concise, human-readable view when pages are printed."""
