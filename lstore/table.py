@@ -9,11 +9,10 @@ from lstore.page import Page
 class Record:
     """Lightweight holder for a single row's column values."""
 
-    def __init__(self, key, columns, is_tail=False):
+    def __init__(self, key, columns):
         self.rid = None
         self.key = key
         self.columns = columns
-        self.is_tail = is_tail
 
     def __getitem__(self, column):
         return self.columns[column]
@@ -25,7 +24,7 @@ class Record:
         return f"{self.rid}, {self.key}, {self.columns}"
 
     def __repr__(self):
-        return f"Record(rid={self.rid}, key={self.key}, columns={self.columns}, is_tail={self.is_tail})"
+        return f"Record(rid={self.rid}, key={self.key}, columns={self.columns})"
 
 class PageDirectory:
     def __init__(self, num_columns: int, num_ranges: int = Config.initial_page_ranges):
