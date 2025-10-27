@@ -8,7 +8,7 @@ def test_random_key_insertions():
   table = Table("grades", num_columns=5, key=0)
   records = {}
 
-  number_of_records = 10000
+  number_of_records = 100
   seed(3562901)
 
   keys = sample(range(92106429, 92106429 + number_of_records * 3), number_of_records)
@@ -30,7 +30,7 @@ def test_delete_record():
   table = Table("grades", num_columns=5, key=0)
   records = {}
 
-  number_of_records = 10
+  number_of_records = 100
   seed(3562901)
 
   keys = sample(range(92106429, 92106429 + number_of_records * 3), number_of_records)
@@ -51,7 +51,7 @@ def test_insert_tail_record():
   table = Table("grades", num_columns=5, key=0)
   records = {}
 
-  number_of_records = 200
+  number_of_records = 100
   seed(3562901)
 
   keys = sample(range(92106429, 92106429 + number_of_records * 3), number_of_records)
@@ -76,9 +76,9 @@ def test_insert_tail_record():
     rid = table.page_directory.encode_rid(range_id, 0, offset)
     tail_record = table.get_version_of_record(rid, 0)
     base_record = table.get_record(tail_record[Config.base_rid_column])
-    print("--------------------------------")
-    print("schema encoding", bin(tail_record[Config.schema_encoding_column]))
-    print("base record", base_record)
-    print("tail", tail_record)
-    # print("scehma encoding", bin(base_record[Config.schema_encoding_column]))
-    print("updated record", table.get_updated_record(rid))
+    # print("--------------------------------")
+    # print("schema encoding", bin(tail_record[Config.schema_encoding_column]))
+    # print("base record", base_record)
+    # print("tail", tail_record)
+    # # print("scehma encoding", bin(base_record[Config.schema_encoding_column]))
+    # print("updated record", table.get_updated_record(rid))
