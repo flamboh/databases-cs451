@@ -66,7 +66,6 @@ class PageDirectory:
         num_columns = len(columns)
         if num_columns != expected_len:
             raise ValueError(f"Expected {expected_len} columns ({"tail" if is_tail else "base"} meta columns + {self.num_columns} data columns), got {len(columns)}")
-        # rid = self.num_base_records if not is_tail else self.num_tail_records
 
         if not is_tail:
             range_id = self.num_base_records // Config.records_per_range
@@ -77,6 +76,8 @@ class PageDirectory:
         else:
             base_range = self.decode_rid(base_rid)[0]
             offset = self.tail_offsets[base_range]
+            if offset >= Config.records_per_range:
+                raise RuntimeError("Tail range is full; merge required before inserting more tail records")
             rid = self.encode_rid(base_range, 1, offset)
             self.tail_offsets[base_range] += 1
             columns[Config.schema_encoding_column] = self.build_schema_encoding(columns)
@@ -84,7 +85,7 @@ class PageDirectory:
             if base_record[Config.indirection_column] != Config.null_value:
                 columns[Config.indirection_column] = base_record[Config.indirection_column]
             else:
-                columns[Config.indirection_column] = rid
+                columns[Config.indirection_column] = base_rid
             columns[Config.base_rid_column] = base_rid
 
         columns[Config.timestamp_column] = int(time())
@@ -159,29 +160,40 @@ class PageDirectory:
 
     def get_relative_version_of_record_from_base_rid(self, base_rid: int, version: int = -1):
         """
-        Gets a cumulative updated version of a record from the table, defaults to latest
+        Gets a cumulative updated version of a record from the table, defaults to latest (-1), 0 for base record
         :param base_rid: int - the RID of the base record
-        :param version: int - the relative version of the record, increase to get older versions, defaults to latest
+        :param version: int - the relative version of the record, decrease to get older versions, defaults to latest
         :return: list[int] - the columns of the record, with a tail record
         """
-        base_record = self.get_record_from_rid(base_rid)
-        result_record = base_record[:Config.base_meta_columns] + [base_record[Config.rid_column]] + base_record[Config.base_meta_columns:]
-        if version == 0:
-            return result_record
-        if version == -1:
-            return self.get_cumulative_updated_record_from_base_rid(base_rid)
-        i = -1
-        num_columns = self.num_columns + Config.tail_meta_columns
-        current_record = self.get_record_from_rid(base_record[Config.indirection_column])
-        while current_record is not base_record:
-            next_indirection = current_record[Config.indirection_column]
-            current_record = self.get_record_from_rid(next_indirection)
-            if i > version: continue
-            for j in range(Config.tail_meta_columns, num_columns):
-                if current_record[j] != Config.null_value:
-                    result_record[j] = current_record[j]
-            i -= 1
-        return result_record
+        base_record = self.get_record_from_rid(base_rid)  
+        result_record = base_record[:Config.base_meta_columns] + [base_record[Config.rid_column]] + base_record[Config.base_meta_columns:]  
+        
+        if version == 0:  
+            return result_record  
+        
+        if version == -1:  
+            return self.get_cumulative_updated_record_from_base_rid(base_rid)  
+        
+        # Collect all tail records in the chain  
+        tail_records = []  
+        current_rid = base_record[Config.indirection_column]  
+        while current_rid != Config.null_value:  
+            tail_record = self.get_record_from_rid(current_rid)  
+            tail_records.append(tail_record)  
+            current_rid = tail_record[Config.indirection_column]  
+        
+        # Apply updates from oldest to newest, but skip the last (-version - 1) records  
+        # version = -2 means skip 1 record (the most recent), version = -3 means skip 2, etc.  
+        num_to_apply = len(tail_records) + version + 1  # e.g., -2 becomes len - 1  
+        num_columns = self.num_columns + Config.tail_meta_columns  
+        
+        for i in range(min(num_to_apply, len(tail_records))):  
+            tail_record = tail_records[i]  
+            for j in range(Config.tail_meta_columns, num_columns):  
+                if tail_record[j] != Config.null_value:  
+                    result_record[j] = tail_record[j]  
+        
+        return result_record  
 
 
     def get_cumulative_updated_record_from_base_rid(self, base_rid: int):
@@ -200,21 +212,16 @@ class PageDirectory:
         indirection_rid = base_record[Config.indirection_column]
         if indirection_rid == Config.null_value:
             return base_record
-
-        current_record = result_record
         schema_encoding = base_record[Config.schema_encoding_column]
-        while schema_encoding != 0 and indirection_rid != Config.null_value and current_record is not base_record :
+        while schema_encoding != 0 and indirection_rid != base_rid:
             current_record = self.get_record_from_rid(indirection_rid)
-            next_indirection = current_record[Config.indirection_column]
-            updated_in_this_iter = 0
+            indirection_rid = current_record[Config.indirection_column]
             for i in range(Config.tail_meta_columns, num_columns):
                 bit = (1 << (num_columns - i - 1))
                 if schema_encoding & bit:
                     if current_record[i] != Config.null_value:
                         result_record[i] = current_record[i]
                         schema_encoding &= ~bit
-                        updated_in_this_iter |= bit
-            indirection_rid = next_indirection
         return result_record
 
     def delete_record(self, rid: int):
@@ -237,7 +244,7 @@ class PageDirectory:
         current_rid = self.page_directory[range_id]["base"][page_index][Config.rid_column].read(slot_index)
         if current_rid == Config.null_value:
             return True
-        self.page_directory[range_id]["base"][page_index][Config.rid_column].write_slot(slot_index, Config.null_value)
+        self.page_directory[range_id]["base"][page_index][Config.indirection_column].write_slot(slot_index, Config.null_value)
         return True
 
 class Table:
