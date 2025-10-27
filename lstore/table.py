@@ -228,7 +228,7 @@ class PageDirectory:
 
         indirection_rid = base_record[Config.indirection_column]
         if indirection_rid == Config.null_value:
-            return base_record
+            return result_record
         schema_encoding = base_record[Config.schema_encoding_column]
         while schema_encoding != 0 and indirection_rid != base_rid:
             current_record = self.get_record_from_rid(indirection_rid)
