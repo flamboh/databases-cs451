@@ -29,66 +29,127 @@ class Record:
 
 class PageDirectory:
     def __init__(self, num_columns: int, num_ranges: int = Config.initial_page_ranges):
-        self.page_directory = defaultdict(dict) # key: page_range, value: dict of "base" and "tail" where each contains a list of logical pages (logical pages containg Page() objects)
+        self.page_directory = defaultdict(lambda: {"base": [], "tail": []}) # key: page_range, value: dict of "base" and "tail" where each contains a list of logical pages (logical pages containg Page() objects)
         self.num_columns = num_columns
         self.num_ranges = num_ranges
         self.num_base_records = 0
         self.num_tail_records = 0
-        self.records_per_range = Config.records_per_page * Config.pages_per_range
+        self.base_offsets = defaultdict(int)
+        self.tail_offsets = defaultdict(int)
         for range_id in range(num_ranges):
             self.page_directory[range_id] = {
                 "base": [],
                 "tail": []
             }
 
-    def add_record(self, columns: list[int], is_tail: bool = False):
+    def encode_rid(self, range_id, segment, offset):
+        return range_id * Config.range_cap + segment * Config.records_per_range + offset
+    
+    def decode_rid(self, rid: int):
+        range_id  = rid // Config.records_per_range
+        seg_block = rid % Config.range_cap
+        segment   = seg_block // Config.records_per_range
+        offset    = seg_block % Config.records_per_range
+        page_idx  = offset // Config.records_per_page
+        slot_idx  = offset % Config.records_per_page
+        return range_id, segment, page_idx, slot_idx
+
+
+    def add_record(self, columns: list[int], is_tail: bool = False, base_rid: int = Config.null_value):
         """
         Adds a record to the page directory
         :param columns: list[int] - the columns of the record, includes meta columns
         :param is_tail: bool - whether the record is a tail record
+        :param base_rid: int - the RID of the base record, only used for tail records
         """
-        
         expected_len = (Config.tail_meta_columns if is_tail else Config.base_meta_columns) + self.num_columns
         num_columns = len(columns)
         if num_columns != expected_len:
             raise ValueError(f"Expected {expected_len} columns ({"tail" if is_tail else "base"} meta columns + {self.num_columns} data columns), got {len(columns)}")
-        rid = self.num_base_records if not is_tail else self.num_tail_records
+        # rid = self.num_base_records if not is_tail else self.num_tail_records
 
-        range_id = rid // self.records_per_range # selects range
-        page_index = (rid // Config.records_per_page) % Config.pages_per_range # select logical page
-        columns[Config.rid_column] = rid
+        if not is_tail:
+            range_id = self.num_base_records // Config.records_per_range
+            offset = self.base_offsets[range_id]
+            rid = self.encode_rid(range_id, 0, offset)
+            self.base_offsets[range_id] += 1
+            columns[Config.schema_encoding_column] = 0
+        else:
+            base_range = self.decode_rid(base_rid)[0]
+            offset = self.tail_offsets[base_range]
+            rid = self.encode_rid(base_range, 1, offset)
+            self.tail_offsets[base_range] += 1
+            columns[Config.schema_encoding_column] = self.build_schema_encoding(columns)
 
-        if range_id >= self.num_ranges:
-            for i in range(range_id, self.num_ranges * 2):
-                self.page_directory[i] = {
-                    "base": [],
-                    "tail": []
-                }
-            self.num_ranges *= 2
+        columns[Config.timestamp_column] = int(time())
+        range_id, _, page_index, _ = self.decode_rid(rid)
+        segment_key = "tail" if is_tail else "base"
+        
+        if page_index >= len(self.page_directory[range_id][segment_key]):
+            self.page_directory[range_id][segment_key].append([Page() for _ in range(num_columns)])
         
         if rid % Config.records_per_page == 0:
-            self.page_directory[range_id][("tail" if is_tail else "base")].append([Page() for _ in range(num_columns)])
-        for i, column in enumerate(columns):
-            # print(self.page_directory[range_id][("tail" if is_tail else "base")])   
-            self.page_directory[range_id][("tail" if is_tail else "base")][page_index][i].write(column)
+            self.page_directory[range_id][segment_key].append([Page() for _ in range(num_columns)])
+        columns[Config.rid_column] = rid
+        for i, value in enumerate(columns):
+            physical_page = self.page_directory[range_id][segment_key][page_index][i]
+            physical_page.write(value)
         
         if not is_tail:
             self.num_base_records += 1
         else:
             self.num_tail_records += 1
+
+        if is_tail and base_rid != Config.null_value:
+            self.update_base_record(base_rid, columns)
+            ## update tail record indirection
         
-    def get_record_from_rid(self, rid: int, is_tail: bool = False):
+        return rid
+
+    def update_base_record(self, base_rid: int, tail_columns: list[int]):
+        """
+        Updates a base record
+        :param base_rid: int - the RID of the base record
+        :param tail_columns: list[int] - the columns of the latest tail record
+        :return: bool - whether the record was updated
+        """
+        range_id, _, page_index, slot_index = self.decode_rid(base_rid)
+        segment_key = "base"
+        base_indirection_page = self.page_directory[range_id][segment_key][page_index][Config.indirection_column]
+        base_indirection_page.write_slot(slot_index, tail_columns[Config.rid_column])
+        base_schema_encoding_page = self.page_directory[range_id][segment_key][page_index][Config.schema_encoding_column]
+        base_schema_encoding = base_schema_encoding_page.read(slot_index)
+        new_schema_encoding = self.build_schema_encoding(tail_columns)
+        base_schema_encoding_page.write_slot(slot_index, new_schema_encoding | base_schema_encoding)
+        return True
+
+
+    def build_schema_encoding(self, tail_columns: list[int]):
+        """
+        Builds a schema encoding from a list of columns
+        :param columns: list[int] - the columns of the record
+        :return: int - the schema encoding
+        """
+        schema_encoding = 0
+        num_data_columns = len(tail_columns) - Config.tail_meta_columns
+        for i in range(num_data_columns):
+            if tail_columns[i + Config.tail_meta_columns] == Config.null_value:
+                schema_encoding |= 1 << (num_data_columns - i - 1)
+        return schema_encoding
+
+
+    def get_record_from_rid(self, rid: int):
         """
         Gets a record from the table
         :param rid: int - the RID of the record
         :param is_tail: bool - whether the record is a tail record
         :return: list[int] - the columns of the record
         """
-        range_id = rid // self.records_per_range # selects range
-        page_index = (rid // Config.records_per_page) % Config.pages_per_range # select logical page
-        slot_index = rid % Config.records_per_page # select slot
-        num_columns = (Config.tail_meta_columns if is_tail else Config.base_meta_columns) + self.num_columns
-        columns = [self.page_directory[range_id][("tail" if is_tail else "base")][page_index][i].read(slot_index) for i in range(num_columns)]
+        range_id, segment, page_index, slot_index = self.decode_rid(rid)
+        segment_key = "tail" if segment else "base"
+        num_columns = (Config.tail_meta_columns if segment else Config.base_meta_columns) + self.num_columns
+        logical_page = self.page_directory[range_id][segment_key][page_index]
+        columns = [logical_page[i].read(slot_index) for i in range(num_columns)]
         return columns
 
 
@@ -99,13 +160,13 @@ class PageDirectory:
         :param version: int - the relative version of the record, increase to get older versions, defaults to latest
         :return: list[int] - the columns of the record
         """
-        base_record = self.get_record_from_rid(base_rid, is_tail=False)
+        base_record = self.get_record_from_rid(base_rid)
         if version == -1:
             return base_record
         i = 0
         current_record = base_record
-        while i < version:
-            current_record = self.get_record_from_rid(current_record[Config.indirection_column], is_tail=True)
+        while i < version + 1:
+            current_record = self.get_record_from_rid(current_record[Config.indirection_column])
             i += 1
         return current_record
 
@@ -118,7 +179,7 @@ class PageDirectory:
         if rid < 0 or rid >= self.num_base_records:
             return False
 
-        range_id = rid // self.records_per_range # selects range
+        range_id = rid // Config.records_per_range # selects range
         page_index = (rid // Config.records_per_page) % Config.pages_per_range # select logical page
         if range_id not in self.page_directory or not self.page_directory[range_id]["base"]:
             return False
@@ -127,9 +188,9 @@ class PageDirectory:
 
         slot_index = rid % Config.records_per_page # select slot
         current_rid = self.page_directory[range_id]["base"][page_index][Config.rid_column].read(slot_index)
-        if current_rid == Config.deleted_record_rid_value:
+        if current_rid == Config.null_value:
             return True
-        self.page_directory[range_id]["base"][page_index][Config.rid_column].write_slot(slot_index, Config.deleted_record_rid_value)
+        self.page_directory[range_id]["base"][page_index][Config.rid_column].write_slot(slot_index, Config.null_value)
         return True
 
 class Table:
@@ -152,20 +213,30 @@ class Table:
         :param rid: int - the RID of the record
         :return: list[int] - the columns of the record
         """
-        return self.page_directory.get_record_from_rid(rid, is_tail=False)
+        return self.page_directory.get_record_from_rid(rid)
 
-    def insert_record(self, columns: list[int]):
+    def get_version_of_record(self, rid: int, version: int = 0):
+        """
+        Gets a version of a record from the table
+        :param rid: int - the RID of the record
+        :param version: int - the relative version of the record, increase to get older versions, defaults to latest
+        :return: list[int] - the columns of the record
+        """
+        return self.page_directory.get_version_of_record_from_base_rid(rid, version)
+
+    def insert_record(self, columns: list[int], is_tail: bool = False, base_rid: int = Config.null_value):
         """
         Inserts a record into the table
         :param columns: list[int] - the columns of the record
+        :param base_rid: int - the RID of the base record, only used for tail records
+        :return: int - the RID of the record
         """
-        self.page_directory.add_record(columns)
-        return True
+        return self.page_directory.add_record(columns, is_tail=is_tail, base_rid=base_rid)
 
     def delete_record(self, rid: int):
         """
         Deletes a record from the table
-        :param rid: int - the RID of the record
+        :param rid: int - the RID of the base record
         :return: bool - whether the record was deleted
         """
         return self.page_directory.delete_record(rid)
