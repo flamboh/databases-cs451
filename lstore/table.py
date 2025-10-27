@@ -76,6 +76,7 @@ class PageDirectory:
             offset = self.base_offsets[range_id]
             rid = self.encode_rid(range_id, 0, offset)
             self.base_offsets[range_id] += 1
+            columns[Config.indirection_column] = Config.null_value
             columns[Config.schema_encoding_column] = 0
         else:
             base_range = self.decode_rid(base_rid)[0]
@@ -162,6 +163,10 @@ class PageDirectory:
         num_columns = (Config.tail_meta_columns if segment else Config.base_meta_columns) + self.num_columns
         logical_page = self.page_directory[range_id][segment_key][page_index]
         columns = [logical_page[i].read(slot_index) for i in range(num_columns)]
+
+        if not segment and columns[Config.indirection_column] == Config.deleted_record_value:
+            raise RuntimeError(f"Record with RID {rid} has been deleted")
+
         return columns
 
 
