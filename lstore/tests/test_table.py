@@ -51,19 +51,24 @@ def test_insert_tail_record():
   table = Table("grades", num_columns=5, key=0)
   records = {}
 
-  number_of_records = 10000
+  number_of_records = 200
   seed(3562901)
 
   keys = sample(range(92106429, 92106429 + number_of_records * 3), number_of_records)
   base_meta = [Config.null_value for _ in range(Config.base_meta_columns)]
   for key in keys:
-    rec = base_meta + [key] + [Config.null_value if (v := randint(0, 20)) == 7 else v for _ in range(table.num_columns - 1)]
-    records[key] = rec
+    tail_rec = base_meta + [-1] + [key] + [Config.null_value if (v := randint(0, 20)) % 3 == 0 else v for _ in range(table.num_columns - 1)]
+    base_rec = base_meta + [key] + [randint(0, 20) for _ in range(table.num_columns - 1)]
+    records[key] = {
+      "base": base_rec,
+      "tail": tail_rec
+    }
 
   for key in keys:
-    base_rid = table.insert_record(records[key], is_tail=False)
-    tail_rec = base_meta + [base_rid] + records[key][Config.base_meta_columns:]
-    table.insert_record(tail_rec, is_tail=True, base_rid=base_rid)
+    base_rid = table.insert_record(records[key]["base"], is_tail=False)
+    tail_rec = records[key]["tail"]
+    tail_rec[Config.base_rid_column] = base_rid
+    table.insert_record(records[key]["tail"], is_tail=True, base_rid=base_rid)
 
   for i in range(number_of_records):
     range_id = i // Config.records_per_range
@@ -71,7 +76,9 @@ def test_insert_tail_record():
     rid = table.page_directory.encode_rid(range_id, 0, offset)
     tail_record = table.get_version_of_record(rid, 0)
     base_record = table.get_record(tail_record[Config.base_rid_column])
-  print("tail", tail_record)
-  print("scehma encoding", bin(tail_record[Config.schema_encoding_column]))
-  print("base record", base_record)
-  print("scehma encoding", bin(base_record[Config.schema_encoding_column]))
+    print("--------------------------------")
+    print("schema encoding", bin(tail_record[Config.schema_encoding_column]))
+    print("base record", base_record)
+    print("tail", tail_record)
+    # print("scehma encoding", bin(base_record[Config.schema_encoding_column]))
+    print("updated record", table.get_updated_record(rid))
