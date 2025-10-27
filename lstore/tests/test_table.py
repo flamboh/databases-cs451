@@ -43,7 +43,7 @@ def test_delete_record():
   for i in range(number_of_records):
     assert table.delete_record(i)
     record = table.get_record(i)
-    assert record[Config.rid_column] == Config.null_value
+    assert record[Config.indirection_column] == Config.null_value
   assert table.delete_record(0)
 
 
@@ -77,6 +77,19 @@ def test_insert_tail_record():
     updated_record = table.get_relative_version_of_record(rid, -1)
     assert updated_record[Config.base_rid_column] == rid
 
+  # create a second set of tail records and insert them
+  second_tail_records = {}
+  for key in keys:
+      # For the new tail, randomly choose some columns to be null, some with new values
+      new_tail_rec = base_meta + [-1] + [key] + [
+          Config.null_value if (v := randint(0, 20)) % 2 == 0 else v
+          for _ in range(table.num_columns - 1)
+      ]
+      base_rid = records[key]["tail"][Config.base_rid_column]  # This should be the base RID for this key
+      new_tail_rec[Config.base_rid_column] = base_rid
+      second_tail_records[key] = new_tail_rec
+      table.insert_record(new_tail_rec, is_tail=True, base_rid=base_rid)
+  
     # print("--------------------------------")
     # print("schema encoding", bin(tail_record[Config.schema_encoding_column]))
     # print("base record", base_record)
