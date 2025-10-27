@@ -74,7 +74,7 @@ def test_insert_tail_record():
     range_id = i // Config.records_per_range
     offset = i % Config.records_per_range
     rid = table.page_directory.encode_rid(range_id, 0, offset)
-    tail_record = table.get_version_of_record(rid, 0)
+    tail_record = table.get_relative_version_of_record(rid, -1)
     base_record = table.get_record(tail_record[Config.base_rid_column])
     # print("--------------------------------")
     # print("schema encoding", bin(tail_record[Config.schema_encoding_column]))
