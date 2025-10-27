@@ -1,13 +1,13 @@
-from lstore.index import Index
-from time import time
-from config import Config
 from collections import defaultdict
+from time import time
+
+from config import Config
+from lstore.index import Index
 from lstore.page import Page
 
+
 class Record:
-    """
-    implement later with table class methods
-    """
+    """Lightweight holder for a single row's column values."""
 
     def __init__(self, key, columns, is_tail=False):
         self.rid = None
@@ -29,30 +29,27 @@ class Record:
 
 class PageDirectory:
     def __init__(self, num_columns: int, num_ranges: int = Config.initial_page_ranges):
-        self.page_directory = defaultdict(lambda: {"base": [], "tail": []}) # key: page_range, value: dict of "base" and "tail" where each contains a list of logical pages (logical pages containg Page() objects)
+        # Each range lazily maps to base and tail logical pages (column-major Page instances).
+        self.page_directory = defaultdict(lambda: {"base": [], "tail": []})
         self.num_columns = num_columns
         self.num_ranges = num_ranges
         self.num_base_records = 0
         self.num_tail_records = 0
         self.base_offsets = defaultdict(int)
         self.tail_offsets = defaultdict(int)
-        for range_id in range(num_ranges):
-            self.page_directory[range_id] = {
-                "base": [],
-                "tail": []
-            }
+
 
     def encode_rid(self, range_id, segment, offset):
         return range_id * Config.range_cap + segment * Config.records_per_range + offset
-    
+
     def decode_rid(self, rid: int):
-        range_id  = rid // Config.range_cap
-        seg_block = rid % Config.range_cap
-        segment   = seg_block // Config.records_per_range
-        offset    = seg_block % Config.records_per_range
-        page_idx  = offset // Config.records_per_page
-        slot_idx  = offset % Config.records_per_page
-        return range_id, segment, page_idx, slot_idx
+        range_id = rid // Config.range_cap
+        segment_block = rid % Config.range_cap
+        segment = segment_block // Config.records_per_range
+        offset = segment_block % Config.records_per_range
+        page_index = offset // Config.records_per_page
+        slot_index = offset % Config.records_per_page
+        return range_id, segment, page_index, slot_index
 
 
     def add_record(self, columns: list[int], is_tail: bool = False, base_rid: int = Config.null_value):
@@ -65,7 +62,14 @@ class PageDirectory:
         expected_len = (Config.tail_meta_columns if is_tail else Config.base_meta_columns) + self.num_columns
         num_columns = len(columns)
         if num_columns != expected_len:
-            raise ValueError(f"Expected {expected_len} columns ({"tail" if is_tail else "base"} meta columns + {self.num_columns} data columns), got {len(columns)}")
+            raise ValueError(
+                "Expected {expected} columns ({kind} meta columns + {data} data columns), got {actual}".format(
+                    expected=expected_len,
+                    kind="tail" if is_tail else "base",
+                    data=self.num_columns,
+                    actual=len(columns),
+                )
+            )
 
         if not is_tail:
             range_id = self.num_base_records // Config.records_per_range
@@ -93,7 +97,10 @@ class PageDirectory:
         segment_key = "tail" if is_tail else "base"
         
         while page_index >= len(self.page_directory[range_id][segment_key]):
-            self.page_directory[range_id][segment_key].append([Page() for _ in range(num_columns)])
+            # Each logical page holds one columnar Page per column (meta + data).
+            self.page_directory[range_id][segment_key].append(
+                [Page() for _ in range(num_columns)]
+            )
         
 
         columns[Config.rid_column] = rid
@@ -165,35 +172,38 @@ class PageDirectory:
         :param version: int - the relative version of the record, decrease to get older versions, defaults to latest
         :return: list[int] - the columns of the record, with a tail record
         """
-        base_record = self.get_record_from_rid(base_rid)  
-        result_record = base_record[:Config.base_meta_columns] + [base_record[Config.rid_column]] + base_record[Config.base_meta_columns:]  
-        
-        if version == 0:  
-            return result_record  
-        
-        if version == -1:  
-            return self.get_cumulative_updated_record_from_base_rid(base_rid)  
-        
-        # Collect all tail records in the chain  
-        tail_records = []  
-        current_rid = base_record[Config.indirection_column]  
-        while current_rid != Config.null_value:  
-            tail_record = self.get_record_from_rid(current_rid)  
-            tail_records.append(tail_record)  
-            current_rid = tail_record[Config.indirection_column]  
-        
-        # Apply updates from oldest to newest, but skip the last (-version - 1) records  
-        # version = -2 means skip 1 record (the most recent), version = -3 means skip 2, etc.  
-        num_to_apply = len(tail_records) + version + 1  # e.g., -2 becomes len - 1  
-        num_columns = self.num_columns + Config.tail_meta_columns  
-        
-        for i in range(min(num_to_apply, len(tail_records))):  
-            tail_record = tail_records[i]  
-            for j in range(Config.tail_meta_columns, num_columns):  
-                if tail_record[j] != Config.null_value:  
-                    result_record[j] = tail_record[j]  
-        
-        return result_record  
+        base_record = self.get_record_from_rid(base_rid)
+        result_record = (
+            base_record[: Config.base_meta_columns]
+            + [base_record[Config.rid_column]]
+            + base_record[Config.base_meta_columns :]
+        )
+
+        if version == 0:
+            return result_record
+
+        if version == -1:
+            return self.get_cumulative_updated_record_from_base_rid(base_rid)
+
+        # Gather the tail chain so we can walk versions from oldest to newest.
+        tail_chain = []
+        current_rid = base_record[Config.indirection_column]
+        while current_rid != Config.null_value:
+            tail_record = self.get_record_from_rid(current_rid)
+            tail_chain.append(tail_record)
+            current_rid = tail_record[Config.indirection_column]
+
+        # version = -2 means "latest minus one", etc.
+        records_to_apply = len(tail_chain) + version + 1
+        data_column_count = self.num_columns + Config.tail_meta_columns
+
+        for tail_index in range(min(records_to_apply, len(tail_chain))):
+            tail_record = tail_chain[tail_index]
+            for column_index in range(Config.tail_meta_columns, data_column_count):
+                if tail_record[column_index] != Config.null_value:
+                    result_record[column_index] = tail_record[column_index]
+
+        return result_record
 
 
     def get_cumulative_updated_record_from_base_rid(self, base_rid: int):
@@ -203,12 +213,14 @@ class PageDirectory:
         :return: list[int] - the columns of the record
         """
         base_record = self.get_record_from_rid(base_rid)
-        result_record = base_record[:Config.base_meta_columns] + [base_record[Config.rid_column]] + base_record[Config.base_meta_columns:]
-        
-        
-        num_columns = self.num_columns + Config.tail_meta_columns
-        
-        
+        result_record = (
+            base_record[: Config.base_meta_columns]
+            + [base_record[Config.rid_column]]
+            + base_record[Config.base_meta_columns :]
+        )
+
+        data_column_count = self.num_columns + Config.tail_meta_columns
+
         indirection_rid = base_record[Config.indirection_column]
         if indirection_rid == Config.null_value:
             return base_record
@@ -216,12 +228,11 @@ class PageDirectory:
         while schema_encoding != 0 and indirection_rid != base_rid:
             current_record = self.get_record_from_rid(indirection_rid)
             indirection_rid = current_record[Config.indirection_column]
-            for i in range(Config.tail_meta_columns, num_columns):
-                bit = (1 << (num_columns - i - 1))
-                if schema_encoding & bit:
-                    if current_record[i] != Config.null_value:
-                        result_record[i] = current_record[i]
-                        schema_encoding &= ~bit
+            for column_index in range(Config.tail_meta_columns, data_column_count):
+                bit_mask = 1 << (data_column_count - column_index - 1)
+                if schema_encoding & bit_mask and current_record[column_index] != Config.null_value:
+                    result_record[column_index] = current_record[column_index]
+                    schema_encoding &= ~bit_mask
         return result_record
 
     def delete_record(self, rid: int):
@@ -233,18 +244,22 @@ class PageDirectory:
         if rid < 0 or rid >= self.num_base_records:
             return False
 
-        range_id = rid // Config.records_per_range # selects range
-        page_index = (rid // Config.records_per_page) % Config.pages_per_range # select logical page
+        range_id = rid // Config.records_per_range
+        page_index = (rid // Config.records_per_page) % Config.pages_per_range
         if range_id not in self.page_directory or not self.page_directory[range_id]["base"]:
             return False
         if page_index >= len(self.page_directory[range_id]["base"]):
             return False
 
-        slot_index = rid % Config.records_per_page # select slot
-        current_rid = self.page_directory[range_id]["base"][page_index][Config.rid_column].read(slot_index)
+        slot_index = rid % Config.records_per_page
+        rid_page = self.page_directory[range_id]["base"][page_index][Config.rid_column]
+        indirection_page = self.page_directory[range_id]["base"][page_index][Config.indirection_column]
+
+        current_rid = rid_page.read(slot_index)
         if current_rid == Config.null_value:
             return True
-        self.page_directory[range_id]["base"][page_index][Config.indirection_column].write_slot(slot_index, Config.null_value)
+
+        indirection_page.write_slot(slot_index, Config.deleted_record_value)
         return True
 
 class Table:
