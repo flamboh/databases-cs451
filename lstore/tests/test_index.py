@@ -6,7 +6,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from config import Config
 from lstore.index import Index
+from lstore.table import Table
 
 
 class FakeTable:
@@ -104,6 +106,66 @@ def test_secondary_index_add_update_remove_and_drop():
     assert index.locate(1, 100) == [1]
     assert index.locate(1, 250) == [3]
     assert index.drop_index(0) is False
+
+
+def _insert_base_record(table: Table, primary_key: int, *data_columns: int) -> int:
+    base_meta = [Config.null_value for _ in range(Config.base_meta_columns)]
+    payload = list(data_columns)
+    row = base_meta + [primary_key] + payload
+    return table.insert_record(row, is_tail=False)
+
+
+def test_primary_index_with_real_table():
+    table = Table("students", num_columns=3, key=0)
+    rid_map = {
+        key: _insert_base_record(table, key, key * 2, key * 3)
+        for key in (11, 22, 33)
+    }
+
+    index = Index(table)
+
+    for key, rid in rid_map.items():
+        assert index.locate(0, key) == [rid]
+
+    expected_rids = [rid_map[22], rid_map[33]]
+    assert index.locate_range(20, 40, 0) == expected_rids
+
+
+def test_secondary_index_with_real_table_and_mutations():
+    table = Table("enrollments", num_columns=3, key=0)
+
+    initial_rows = [
+        (101, 900, 12),
+        (202, 900, 15),
+        (303, 950, 18),
+    ]
+
+    rid_map = {
+        key: _insert_base_record(table, key, course, credits)
+        for key, course, credits in initial_rows
+    }
+
+    index = Index(table)
+    assert index.create_index(1)
+
+    assert sorted(index.locate(1, 900)) == sorted([rid_map[101], rid_map[202]])
+
+    new_key = 404
+    new_row = [Config.null_value] * Config.base_meta_columns + [new_key, 920, 21]
+    new_rid = table.insert_record(new_row, is_tail=False)
+    index.add(new_rid, new_row[Config.base_meta_columns :])
+    assert index.locate(1, 920) == [new_rid]
+
+    index.update(
+        new_rid,
+        new_row[Config.base_meta_columns :],
+        [new_key, 900, 21],
+    )
+    assert new_rid in index.locate(1, 900)
+    assert index.locate(1, 920) == []
+
+    index.remove(rid_map[101], [101, 900, 12])
+    assert rid_map[101] not in index.locate(1, 900)
 
 
 if __name__ == "__main__":
