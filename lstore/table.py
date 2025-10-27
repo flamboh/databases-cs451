@@ -192,7 +192,7 @@ class PageDirectory:
         # Gather the tail chain so we can walk versions from oldest to newest.
         tails_newest_first = []
         current_rid = base_record[Config.indirection_column]
-        while current_rid != Config.null_value:
+        while current_rid != base_rid:
             tail_record = self.get_record_from_rid(current_rid)
             tails_newest_first.append(tail_record)
             current_rid = tail_record[Config.indirection_column]
@@ -249,22 +249,29 @@ class PageDirectory:
         :return: bool - whether the record was deleted
         """
         if rid < 0 or rid >= self.num_base_records:
-            return False
+            raise ValueError(f"Invalid RID: {rid}")
 
-        range_id = rid // Config.records_per_range
-        page_index = (rid // Config.records_per_page) % Config.pages_per_range
-        if range_id not in self.page_directory or not self.page_directory[range_id]["base"]:
-            return False
-        if page_index >= len(self.page_directory[range_id]["base"]):
-            return False
+        range_id, segment, page_index, slot_index = self.decode_rid(rid)
+        if segment:
+            raise ValueError("A tail record RID cannot be deleted")
 
-        slot_index = rid % Config.records_per_page
-        rid_page = self.page_directory[range_id]["base"][page_index][Config.rid_column]
-        indirection_page = self.page_directory[range_id]["base"][page_index][Config.indirection_column]
+        base_pages = self.page_directory.get(range_id, {}).get("base")
+        if not base_pages or page_index >= len(base_pages):
+            raise ValueError(f"RID {rid} does not map to a loaded base page")
 
-        current_rid = rid_page.read(slot_index)
+        rid_page = base_pages[page_index][Config.rid_column]
+        indirection_page = base_pages[page_index][Config.indirection_column]
+
+        try:
+            current_rid = rid_page.read(slot_index)
+            indirection_value = indirection_page.read(slot_index)
+        except IndexError as exc:
+            raise ValueError(f"RID {rid} resolved to an invalid slot index") from exc
+
         if current_rid == Config.null_value:
-            return True
+            raise ValueError(f"RID {rid} refers to an empty slot")
+        if indirection_value == Config.deleted_record_value:
+            return False
 
         indirection_page.write_slot(slot_index, Config.deleted_record_value)
         return True
