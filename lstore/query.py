@@ -64,13 +64,8 @@ class Query:
             base_meta = [Config.null_value for _ in range(Config.base_meta_columns)]
             record_data = base_meta + list(columns)
             
-            # insert record (will also update the index via table.insert_record)
+            # insert record (table-level insert wires the index for base rows)
             rid = self.table.insert_record(record_data, is_tail=False)
-            
-            # manually add to index as a workaround to ensure proper indexing
-            data_columns = list(columns)
-            self.table.index.add(rid, data_columns)
-            
             return rid is not False
         except Exception:
             return False
