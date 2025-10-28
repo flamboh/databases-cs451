@@ -189,6 +189,8 @@ class Query:
             
             # get current record values to update index
             current_record = self.table.get_cumulative_updated_record(base_rid)
+            if current_record[Config.indirection_column] == Config.deleted_record_value:
+                return False
             current_data = current_record[Config.tail_meta_columns:]
             
             # create tail record with metadata
@@ -306,7 +308,10 @@ class Query:
     # Returns False if no record matches key or if target record is locked by 2PL.
     """
     def increment(self, key, column):
-        r = self.select(key, self.table.key, [1] * self.table.num_columns)[0]
+        records = self.select(key, self.table.key, [1] * self.table.num_columns)
+        if not records:
+            return False
+        r = records[0]
         if r is not False:
             updated_columns = [None] * self.table.num_columns
             updated_columns[column] = r[column] + 1
