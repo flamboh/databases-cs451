@@ -94,34 +94,21 @@ class Query:
             
             results = []
             for rid in rids:
-                try:
-                    # get cumulative updated record (follows indirection chain)
-                    full_record = self.table.get_cumulative_updated_record(rid)
-                    
-                    # extract data columns (skip metadata columns)
-                    # the cumulative record structure is:
-                    # [indirection, rid, timestamp, schema_encoding, base_rid, ...data columns]
-                    data_columns = full_record[Config.tail_meta_columns:]
-                    
-                    # get primary key from data columns
-                    primary_key_value = data_columns[self.table.key]
-                    
-                    # apply projection
-                    projected_data = []
-                    for i, include in enumerate(projected_columns_index):
-                        if include:
-                            projected_data.append(data_columns[i])
-                        else:
-                            projected_data.append(None)
-                    
-                    # create record object
-                    record = Record(primary_key_value, projected_data)
-                    record.rid = rid
-                    results.append(record)
-                    
-                except RuntimeError:
-                    # record was deleted
+                full_record = self.table.get_cumulative_updated_record(rid)
+
+                if full_record[Config.indirection_column] == Config.deleted_record_value:
                     continue
+
+                data_columns = full_record[Config.tail_meta_columns:]
+                primary_key_value = data_columns[self.table.key]
+
+                projected_data = []
+                for i, include in enumerate(projected_columns_index):
+                    projected_data.append(data_columns[i] if include else None)
+
+                record = Record(primary_key_value, projected_data)
+                record.rid = rid
+                results.append(record)
             
             return results
         except Exception:
@@ -152,50 +139,26 @@ class Query:
             
             results = []
             for rid in rids:
+                internal_version = relative_version - 1
+
                 try:
-                    # version interpretation:
-                    # relative_version = 0 means the latest version
-                    # relative_version = -1 means one version back from latest
-                    # relative_version = -2 means two versions back from latest
-                    # etc.
-                    
-                    # convert to internal version:
-                    # internal version -1 means latest
-                    # internal version -2 means one back
-                    # internal version -3 means two back
-                    internal_version = relative_version - 1
-                    
-                    # get the specific version of the record
-                    try:
-                        full_record = self.table.get_relative_version_of_record(rid, internal_version)
-                    except IndexError:
-                        # if we get an IndexError, it means we're trying to access a version
-                        # that doesn't exist (e.g., asking for version -1 on a fresh insert).
-                        # in this case, just return the base record (version 0)
-                        full_record = self.table.get_relative_version_of_record(rid, 0)
-                    
-                    # extract data columns (skip metadata)
-                    data_columns = full_record[Config.tail_meta_columns:]
-                    
-                    # get primary key from data columns
-                    primary_key_value = data_columns[self.table.key]
-                    
-                    # apply projection
-                    projected_data = []
-                    for i, include in enumerate(projected_columns_index):
-                        if include:
-                            projected_data.append(data_columns[i])
-                        else:
-                            projected_data.append(None)
-                    
-                    # create Record object
-                    record = Record(primary_key_value, projected_data)
-                    record.rid = rid
-                    results.append(record)
-                    
-                except RuntimeError:
-                    # record was deleted
+                    full_record = self.table.get_relative_version_of_record(rid, internal_version)
+                except IndexError:
+                    full_record = self.table.get_relative_version_of_record(rid, 0)
+
+                if full_record[Config.indirection_column] == Config.deleted_record_value:
                     continue
+
+                data_columns = full_record[Config.tail_meta_columns:]
+                primary_key_value = data_columns[self.table.key]
+
+                projected_data = []
+                for i, include in enumerate(projected_columns_index):
+                    projected_data.append(data_columns[i] if include else None)
+
+                record = Record(primary_key_value, projected_data)
+                record.rid = rid
+                results.append(record)
             
             return results
         except Exception as e:
@@ -277,22 +240,17 @@ class Query:
             found_any = False
             
             for rid in rids:
-                try:
-                    # get cumulative updated record
-                    full_record = self.table.get_cumulative_updated_record(rid)
-                    
-                    # extract data columns
-                    data_columns = full_record[Config.tail_meta_columns:]
-                    
-                    # add value from specified column
-                    value = data_columns[aggregate_column_index]
-                    if value is not None and value != Config.null_value:
-                        total += value
-                        found_any = True
-                        
-                except RuntimeError:
-                    # record was deleted, skip it
+                full_record = self.table.get_cumulative_updated_record(rid)
+
+                if full_record[Config.indirection_column] == Config.deleted_record_value:
                     continue
+
+                data_columns = full_record[Config.tail_meta_columns:]
+
+                value = data_columns[aggregate_column_index]
+                if value is not None and value != Config.null_value:
+                    total += value
+                    found_any = True
             
             return total if found_any else 0
         except Exception:
@@ -320,32 +278,22 @@ class Query:
             found_any = False
             
             for rid in rids:
+                internal_version = relative_version - 1
+
                 try:
-                    # convert version numbering from test convention to internal convention
-                    # test convention: 0 = latest, -1 = one back, -2 = two back, etc.
-                    # internal convention: -1 = latest, -2 = one back, -3 = two back, etc.
-                    internal_version = relative_version - 1
-                    
-                    # get specific version of record
-                    try:
-                        full_record = self.table.get_relative_version_of_record(rid, internal_version)
-                    except IndexError:
-                        # if we get an IndexError, it means we're trying to access a version
-                        # that doesn't exist. fall back to the base record.
-                        full_record = self.table.get_relative_version_of_record(rid, 0)
-                    
-                    # extract data columns
-                    data_columns = full_record[Config.tail_meta_columns:]
-                    
-                    # add value from specified column
-                    value = data_columns[aggregate_column_index]
-                    if value is not None and value != Config.null_value:
-                        total += value
-                        found_any = True
-                        
-                except RuntimeError:
-                    # record was deleted, skip it
+                    full_record = self.table.get_relative_version_of_record(rid, internal_version)
+                except IndexError:
+                    full_record = self.table.get_relative_version_of_record(rid, 0)
+
+                if full_record[Config.indirection_column] == Config.deleted_record_value:
                     continue
+
+                data_columns = full_record[Config.tail_meta_columns:]
+
+                value = data_columns[aggregate_column_index]
+                if value is not None and value != Config.null_value:
+                    total += value
+                    found_any = True
             
             return total if found_any else 0
         except Exception:

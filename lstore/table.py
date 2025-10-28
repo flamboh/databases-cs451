@@ -163,8 +163,8 @@ class PageDirectory:
         logical_page = self.page_directory[range_id][segment_key][page_index]
         columns = [logical_page[i].read(slot_index) for i in range(num_columns)]
 
-        if not segment and columns[Config.indirection_column] == Config.deleted_record_value:
-            raise RuntimeError(f"Record with RID {rid} has been deleted")
+        # if not segment and columns[Config.indirection_column] == Config.deleted_record_value: # Deleted records should still return from this method
+        #     raise RuntimeError(f"Record with RID {rid} has been deleted") 
 
         return columns
 
