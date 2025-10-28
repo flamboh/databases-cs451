@@ -324,13 +324,13 @@ class Table:
         """
         rid = self.page_directory.add_record(columns, is_tail=is_tail, base_rid=base_rid)
 
-        data_columns = columns[Config.base_meta_columns : Config.base_meta_columns + self.num_columns]
         if not is_tail:
+            data_columns = columns[Config.base_meta_columns : Config.base_meta_columns + self.num_columns]
             self.index.add(rid, data_columns)
         else:
+            data_columns = columns[Config.tail_meta_columns : Config.tail_meta_columns + self.num_columns]
             base_cols = self.get_cumulative_updated_record(base_rid)[Config.tail_meta_columns : Config.tail_meta_columns + self.num_columns]
-            self.index.update(rid, base_cols, data_columns)
-
+            self.index.update(base_rid, base_cols, data_columns)
         return rid
 
     def delete_record(self, rid: int):

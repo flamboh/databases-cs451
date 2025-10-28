@@ -209,11 +209,8 @@ class Query:
             
             tail_record = tail_meta + tail_data
             
-            # insert tail record
+            # insert tail record table handles index updates
             tail_rid = self.table.insert_record(tail_record, is_tail=True, base_rid=base_rid)
-            
-            # update index for changed columns
-            self.table.index.update(base_rid, current_data, new_data)
             
             return tail_rid is not False
         except Exception:
