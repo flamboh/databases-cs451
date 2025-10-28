@@ -322,15 +322,24 @@ class Table:
         :param base_rid: int - the RID of the base record, only used for tail records
         :return: int - the RID of the record
         """
+        prior_data = None
+        if is_tail:
+            prior_data = self.get_cumulative_updated_record(base_rid)[
+                Config.tail_meta_columns : Config.tail_meta_columns + self.num_columns
+            ]
+
         rid = self.page_directory.add_record(columns, is_tail=is_tail, base_rid=base_rid)
 
         if not is_tail:
-            data_columns = columns[Config.base_meta_columns : Config.base_meta_columns + self.num_columns]
-            self.index.add(rid, data_columns)
+            base_data = columns[
+                Config.base_meta_columns : Config.base_meta_columns + self.num_columns
+            ]
+            self.index.add(rid, base_data)
         else:
-            data_columns = columns[Config.tail_meta_columns : Config.tail_meta_columns + self.num_columns]
-            base_cols = self.get_cumulative_updated_record(base_rid)[Config.tail_meta_columns : Config.tail_meta_columns + self.num_columns]
-            self.index.update(base_rid, base_cols, data_columns)
+            updated_data = self.get_cumulative_updated_record(base_rid)[
+                Config.tail_meta_columns : Config.tail_meta_columns + self.num_columns
+            ]
+            self.index.update(base_rid, prior_data, updated_data)
         return rid
 
     def delete_record(self, rid: int):
