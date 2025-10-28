@@ -163,8 +163,8 @@ class PageDirectory:
         logical_page = self.page_directory[range_id][segment_key][page_index]
         columns = [logical_page[i].read(slot_index) for i in range(num_columns)]
 
-        if not segment and columns[Config.indirection_column] == Config.deleted_record_value:
-            raise RuntimeError(f"Record with RID {rid} has been deleted")
+        # if not segment and columns[Config.indirection_column] == Config.deleted_record_value: # Deleted records should still return from this method
+        #     raise RuntimeError(f"Record with RID {rid} has been deleted") 
 
         return columns
 
@@ -322,12 +322,24 @@ class Table:
         :param base_rid: int - the RID of the base record, only used for tail records
         :return: int - the RID of the record
         """
+        prior_data = None
+        if is_tail:
+            prior_data = self.get_cumulative_updated_record(base_rid)[
+                Config.tail_meta_columns : Config.tail_meta_columns + self.num_columns
+            ]
+
         rid = self.page_directory.add_record(columns, is_tail=is_tail, base_rid=base_rid)
 
         if not is_tail:
-            data_columns = columns[Config.base_meta_columns : Config.base_meta_columns + self.num_columns]
-            self.index.add(rid, data_columns)
-
+            base_data = columns[
+                Config.base_meta_columns : Config.base_meta_columns + self.num_columns
+            ]
+            self.index.add(rid, base_data)
+        else:
+            updated_data = self.get_cumulative_updated_record(base_rid)[
+                Config.tail_meta_columns : Config.tail_meta_columns + self.num_columns
+            ]
+            self.index.update(base_rid, prior_data, updated_data)
         return rid
 
     def delete_record(self, rid: int):

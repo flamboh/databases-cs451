@@ -53,8 +53,8 @@ def test_delete_record():
     for record_index in range(record_count):
         assert grades_table.delete_record(record_index)
 
-        with pytest.raises(RuntimeError):
-            grades_table.get_record(record_index)
+        tombstoned_record = grades_table.get_record(record_index)
+        assert tombstoned_record[Config.indirection_column] == Config.deleted_record_value
 
         range_id = record_index // Config.records_per_range
         page_index = (record_index // Config.records_per_page) % Config.pages_per_range
