@@ -234,7 +234,7 @@ class Query:
             rids = self.table.index.locate_range(start_range, end_range, self.table.key)
             
             if not rids:
-                return 0
+                return False
             
             total = 0
             found_any = False
@@ -252,7 +252,7 @@ class Query:
                     total += value
                     found_any = True
             
-            return total if found_any else 0
+            return total if found_any else False
         except Exception:
             return False
 
@@ -272,7 +272,7 @@ class Query:
             rids = self.table.index.locate_range(start_range, end_range, self.table.key)
             
             if not rids:
-                return 0
+                return False
             
             total = 0
             found_any = False
@@ -295,7 +295,7 @@ class Query:
                     total += value
                     found_any = True
             
-            return total if found_any else 0
+            return total if found_any else False
         except Exception:
             return False
 
