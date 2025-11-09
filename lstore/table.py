@@ -101,7 +101,6 @@ class PageDirectory:
             self.page_directory[range_id][segment_key].append(
                 [Page() for _ in range(num_columns)]
             )
-        
 
         columns[Config.rid_column] = rid
         for i, value in enumerate(columns):

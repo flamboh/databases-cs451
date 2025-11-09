@@ -137,7 +137,7 @@ class Page:
             raise IndexError(f"Invalid range [{start}, {end}) out of bounds [0, {self.num_records}) or start > end")
         return [self.read(slot_index) for slot_index in range(start, end)]
 
-        # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
     # Serialization for disk persistence
     # ------------------------------------------------------------------
     
