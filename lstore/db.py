@@ -1,17 +1,23 @@
 from lstore.table import Table
 
 class Database():
-
     def __init__(self):
         self.tables = {}
-        pass
+        self.bufferpool = None
+        self.path = None
 
-    # Not required for milestone1
     def open(self, path):
-        pass
+        """Open database and initialize bufferpool."""
+        self.path = path
+        os.makedirs(path, exist_ok=True)
+        self.bufferpool = Bufferpool(capacity=1000, base_path=path)
+        # TODO: Load table metadata
 
     def close(self):
-        pass
+        """Flush all pages and save metadata."""
+        if self.bufferpool:
+            self.bufferpool.flush_all()
+        # TODO: Save table metadata
 
     """
     # Creates a new table
