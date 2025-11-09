@@ -30,6 +30,32 @@ class PageDirectory:
     def __init__(self, num_columns: int, num_ranges: int = Config.initial_page_ranges):
         # Each range lazily maps to base and tail logical pages (column-major Page instances).
         self.page_directory = defaultdict(lambda: {"base": [], "tail": []})
+        """
+        self.page_directory = {
+            1: { '8192 records per segment (segment is base or tail) 16384 records total'
+                'base': [
+                            [page()... 'physical page object per column'] "512 records fit in a logical page', 
+                            [page()...]
+                            '16 lists of page objects'
+                            ]
+                'tail': [
+                            [page()...], 
+                            [page()...]
+                        ]
+            }
+            2: {
+                'base': [
+                            [page()... 'page object per column'], 
+                            [page()...]
+                            '16 lists of page objects'
+                            ]
+                'tail': [
+                            [page()...], 
+                            [page()...]
+                        ]
+            }
+        }
+        """
         self.num_columns = num_columns
         self.num_ranges = num_ranges
         self.num_base_records = 0
