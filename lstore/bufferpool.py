@@ -25,7 +25,8 @@ from typing import Optional, Tuple
 
 from config import Config
 from lstore.page import Page
-
+from pathlib import Path
+from contextlib import contextmanager
 
 class Bufferpool:
     """
@@ -42,10 +43,10 @@ class Bufferpool:
         :param base_path: Directory path for storing pages on disk
         """
         self.capacity = capacity
-        self.base_path = base_path
+        self.base_path = Path(base_path) if base_path else None
         
-        # Cache: page_key -> Page object
-        # Using OrderedDict for LRU tracking
+        if self.base_path:
+            self.base_path.mkdir(parents=True, exist_ok=True)
         self.cache: OrderedDict[Tuple, Page] = OrderedDict()
         
         # Statistics
@@ -59,46 +60,28 @@ class Bufferpool:
         """Create a unique key for a page."""
         return (table_name, range_id, segment, page_index, column_index)
     
-    def _make_file_path(self, table_name: str, range_id: int, segment: str, 
-                        page_index: int, column_index: int) -> str:
-        """Create the file path for a page on disk."""
+    def _make_file_path(self, table_name, range_id, segment, page_index, column_index):
         if self.base_path is None:
             return None
         filename = f"{table_name}_r{range_id}_{segment}_p{page_index}_c{column_index}.bin"
-        return os.path.join(self.base_path, filename)
+        return self.base_path / filename
     
-    def get_page(self, table_name: str, range_id: int, segment: str, 
-                 page_index: int, column_index: int) -> Page:
-        """
-        Get a page from the bufferpool. Load from disk if not in cache.
-        
-        :return: Page object (pinned)
-        """
+    def get_page(self, table_name, range_id, segment, page_index, column_index):
         page_key = self._make_page_key(table_name, range_id, segment, page_index, column_index)
-        
-        # Check if page is in cache
-        if page_key in self.cache:
-            # Move to end (most recently used)
+        page = self.cache.get(page_key)
+
+        if page is not None:
             self.cache.move_to_end(page_key)
             self.hits += 1
-            page = self.cache[page_key]
-            page.pin()
-            return page
-        
-        # Page not in cache - need to load from disk
-        self.misses += 1
-        
-        # If cache is full, evict a page
-        if len(self.cache) >= self.capacity:
-            self._evict_page()
-        
-        # Load page from disk or create new one
-        page = self._load_page(table_name, range_id, segment, page_index, column_index)
-        
-        # Add to cache
-        self.cache[page_key] = page
+        else:
+            self.misses += 1
+            if len(self.cache) >= self.capacity:
+                self._evict_page()
+            page = self._load_page(table_name, range_id, segment, page_index, column_index)
+            self.cache[page_key] = page
+
         page.pin()
-        return page
+        return page, page_key
     
     def _load_page(self, table_name: str, range_id: int, segment: str, 
                    page_index: int, column_index: int) -> Page:
@@ -139,25 +122,32 @@ class Bufferpool:
             "Cannot evict any pages."
         )
     
-    def _write_page_to_disk(self, page_key: Tuple, page: Page):
-        """Write a page to disk."""
+    def release_page(self, page_key: Tuple) -> None:
+        """Unpin a previously fetched page so it becomes eligible for eviction."""
+        page = self.cache.get(page_key)
+        if page is None:
+            raise KeyError(f"Page {page_key} was never fetched")
+        page.unpin()
+        if not page.is_pinned():
+            self.cache.move_to_end(page_key)
+
+    @contextmanager
+    def page(self, table_name, range_id, segment, page_index, column_index):
+        page, key = self.get_page(table_name, range_id, segment, page_index, column_index)
+        try:
+            yield page
+        finally:
+            self.release_page(key)
+
+    def _write_page_to_disk(self, page_key, page):
         if self.base_path is None:
             return
-        
-        table_name, range_id, segment, page_index, column_index = page_key
-        file_path = self._make_file_path(table_name, range_id, segment, page_index, column_index)
-        
-        # Create directory if it doesn't exist
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
-        
-        try:
-            with open(file_path, 'wb') as f:
-                f.write(page.to_bytes())
-            page.dirty = False
-            self.writes += 1
-        except Exception as e:
-            print(f"Error: Failed to write page to {file_path}: {e}")
-            raise
+        file_path = self._make_file_path(*page_key)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(file_path, "wb") as handle:
+            handle.write(page.to_bytes())
+        page.dirty = False
+        self.writes += 1
     
     def flush_page(self, table_name: str, range_id: int, segment: str, 
                    page_index: int, column_index: int):

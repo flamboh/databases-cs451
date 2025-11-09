@@ -18,7 +18,7 @@ class Page:
         
         # Bufferpool support
         self.dirty = False # track to see if page has been modified
-        self.pin = 0 # track how many transactions are using this page
+        self.pin_count = 0 # track how many transactions are using this page
 
     def has_capacity(self):
         """
@@ -42,8 +42,10 @@ class Page:
         self.pin_count += 1
     
     def unpin(self):
-        """Unpin this page when done using it."""
-        self.pin_count = max(0, self.pin_count - 1)
+        """Release the pin once the caller is finished."""
+        if self.pin_count == 0:
+            raise RuntimeError("Page.unpin() called on an unpinned page")
+        self.pin_count -= 1
     
     def is_pinned(self):
         """Check if this page is currently pinned."""
