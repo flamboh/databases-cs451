@@ -70,7 +70,6 @@ class Index:
     # Index lifecycle
     # ------------------------------------------------------------------
     def create_index(self, column_number: int) -> bool:
-        pass
         if not 0 <= column_number < self.table.num_columns:
             raise ValueError(f"Column {column_number} out of bounds for index creation")
         if self.indices[column_number] is not None:
@@ -82,7 +81,6 @@ class Index:
         return True
 
     def drop_index(self, column_number: int) -> bool:
-        pass
         if column_number == self.table.key:
             # Primary key index must always exist.
             return False
@@ -95,7 +93,6 @@ class Index:
     # Bulk loading helpers
     # ------------------------------------------------------------------
     def _bulk_load(self, column_number: int, tree: BPlusTree) -> None:
-        pass
         for rid, row in self._iterate_existing_rows():
             try:
                 value = row[column_number]
@@ -106,7 +103,6 @@ class Index:
             tree.insert(value, rid)
 
     def _iterate_existing_rows(self) -> Iterable[Tuple[int, List[Optional[int]]]]:
-        pass
         if hasattr(self.table, "iter_rows_for_index"):
             yield from self.table.iter_rows_for_index()
             return
@@ -119,7 +115,17 @@ class Index:
         # If the table exposes a page directory, iterate known RIDs.
         for rid in range(directory.num_base_records):
             try:
-                record = get_record(rid)
-            except RuntimeError:
+                # get cumulative record (includes all tail updates)
+                full_record = self.table.get_cumulative_updated_record(rid)
+
+                # skip deleted records
+                if full_record[Config.indirection_column] == Config.deleted_record_value:
+                    continue
+
+                # extract data columns 
+                # full_record has srtucture: [indirection, rid, timestamp, schema, base_rid, col0, col1, ...]
+                data_columns = full_record[Config.tail_meta_columns]
+
+                yield rid, data_columns
+            except (RuntimeError, IndexError):
                 continue
-            yield rid, record[Config.base_meta_columns :]
