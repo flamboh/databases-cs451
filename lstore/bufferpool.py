@@ -19,10 +19,6 @@ Workflow Example:
     6. Use the page -> read/write data
     7. Unpin the page -> decrement pin_counter when done
 """
-"""
-Bufferpool manager for L-Store.
-Implements LRU (Least Recently Used) page eviction policy.
-"""
 import os
 from collections import OrderedDict
 from typing import Optional, Tuple
