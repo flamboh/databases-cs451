@@ -1,4 +1,6 @@
 from lstore.table import Table
+from lstore.bufferpool import Bufferpool
+import os
 
 class Database():
     def __init__(self):
