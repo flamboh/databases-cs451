@@ -193,6 +193,13 @@ class Query:
                 return False
             current_data = current_record[Config.tail_meta_columns:]
             
+            # disallow primary-key modifications
+            pk_index = self.table.key
+            requested_pk = columns[pk_index]
+            current_pk = current_data[pk_index]
+            if requested_pk is not None and requested_pk != current_pk:
+                return False
+
             # create tail record with metadata
             tail_meta = [Config.null_value for _ in range(Config.tail_meta_columns)]
             tail_data = []
