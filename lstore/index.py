@@ -103,7 +103,17 @@ class Index:
             tree.insert(value, rid)
 
     def _iterate_existing_rows(self) -> Iterable[Tuple[int, List[Optional[int]]]]:
-        directory = self.table.page_directory
+        # Some tests (and lightweight clients) provide their own iterator to avoid
+        # depending on the storage engine internals. Honor that first so the Index
+        # stays decoupled from PageDirectory/Bufferpool details.
+        iter_rows = getattr(self.table, "iter_rows_for_index", None)
+        if callable(iter_rows):
+            yield from iter_rows()
+            return
+
+        directory = getattr(self.table, "page_directory", None)
+        if directory is None:
+            return
 
         # If the table exposes a page directory, iterate known RIDs.
         for rid in range(directory.num_base_records):
