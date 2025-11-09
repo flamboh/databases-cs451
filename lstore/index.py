@@ -103,14 +103,7 @@ class Index:
             tree.insert(value, rid)
 
     def _iterate_existing_rows(self) -> Iterable[Tuple[int, List[Optional[int]]]]:
-        if hasattr(self.table, "iter_rows_for_index"):
-            yield from self.table.iter_rows_for_index()
-            return
-
-        directory = getattr(self.table, "page_directory", None)
-        get_record = getattr(self.table, "get_record", None)
-        if directory is None or get_record is None:
-            return
+        directory = self.table.page_directory
 
         # If the table exposes a page directory, iterate known RIDs.
         for rid in range(directory.num_base_records):
@@ -123,8 +116,8 @@ class Index:
                     continue
 
                 # extract data columns 
-                # full_record has srtucture: [indirection, rid, timestamp, schema, base_rid, col0, col1, ...]
-                data_columns = full_record[Config.tail_meta_columns]
+                # full_record has structure: [indirection, rid, timestamp, schema, base_rid, col0, col1, ...]
+                data_columns = full_record[Config.tail_meta_columns:]
 
                 yield rid, data_columns
             except (RuntimeError, IndexError):
