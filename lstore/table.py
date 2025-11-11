@@ -1,4 +1,4 @@
-from collections import defaultdict
+from collections import defaultdict, deque
 from time import time
 
 from config import Config
@@ -29,7 +29,7 @@ class Record:
 class PageDirectory:
     def __init__(self, num_columns: int, num_ranges: int = Config.initial_page_ranges):
         # Each range lazily maps to base and tail logical pages (column-major Page instances).
-        self.page_directory = defaultdict(lambda: {"base": [], "tail": []})
+        self.page_directory = defaultdict(lambda: {"base": [], "tail": [], "TPS": 0})
         """
         self.page_directory = {
             1: { '8192 records per segment (segment is base or tail) 16384 records total'
@@ -42,6 +42,7 @@ class PageDirectory:
                             [page()...], 
                             [page()...]
                         ]
+                'TPS' : integer
             }
             2: {
                 'base': [
@@ -62,6 +63,8 @@ class PageDirectory:
         self.num_tail_records = 0
         self.base_offsets = defaultdict(int)
         self.tail_offsets = defaultdict(int)
+        self.tail_merge_progress = defaultdict(int)
+        self.merge_thresholds = defaultdict(lambda: Config.records_per_range // 4)
 
 
     def encode_rid(self, range_id, segment, offset):
@@ -108,6 +111,11 @@ class PageDirectory:
             offset = self.tail_offsets[base_range]
             if offset >= Config.records_per_range:
                 raise RuntimeError("Tail range is full; merge required before inserting more tail records")
+            pending_updates = offset - self.tail_merge_progress[base_range]
+            if pending_updates >= self.merge_thresholds[base_range]:
+                self.merge_range(base_range)
+                self.merge_thresholds[base_range] = max(1, self.merge_thresholds[base_range] * 2)
+                offset = self.tail_offsets[base_range]
             rid = self.encode_rid(base_range, 1, offset)
             self.tail_offsets[base_range] += 1
             columns[Config.schema_encoding_column] = self.build_schema_encoding(columns)
@@ -300,6 +308,56 @@ class PageDirectory:
 
         indirection_page.write_slot(slot_index, Config.deleted_record_value)
         return True
+
+    def merge_range(self, range_id):
+        tail_pages = deque(self.page_directory[range_id]["tail"])
+        base_pages = self.page_directory[range_id]["base"][:]
+        data_column_offset = Config.base_meta_columns
+        tail_data_offset = Config.tail_meta_columns
+
+        start_offset = self.tail_merge_progress[range_id]
+        end_offset = self.tail_offsets[range_id]
+        if start_offset >= end_offset:
+            return False
+
+        merged_any = False
+        for logical_page in tail_pages:
+            num_records = logical_page[0].num_records
+            for tail_slot in range(num_records):
+                tail_columns = [column_page.read(tail_slot) for column_page in logical_page]
+                tail_rid = tail_columns[Config.rid_column]
+                base_rid = tail_columns[Config.base_rid_column]
+                if base_rid == Config.null_value:
+                    continue
+
+                _, _, tail_page_index, tail_slot_index = self.decode_rid(tail_rid)
+                tail_offset = tail_page_index * Config.records_per_page + tail_slot_index
+                if tail_offset < start_offset or tail_offset >= end_offset:
+                    continue
+
+                _, _, base_page_index, base_slot_index = self.decode_rid(base_rid)
+                base_logical_page = base_pages[base_page_index]
+
+                for column_index in range(self.num_columns):
+                    value = tail_columns[tail_data_offset + column_index]
+                    if value == Config.null_value:
+                        continue
+                    base_column_page = base_logical_page[data_column_offset + column_index]
+                    base_column_page.write_slot(base_slot_index, value)
+
+                base_schema_page = base_logical_page[Config.schema_encoding_column]
+                base_schema_page.write_slot(base_slot_index, 0)
+                merged_any = True
+
+        if not merged_any:
+            return False
+
+        self.tail_merge_progress[range_id] = end_offset
+        tps_value = 0 if end_offset == 0 else self.encode_rid(range_id, 1, end_offset - 1)
+        self.page_directory[range_id]["TPS"] = tps_value
+        self.page_directory[range_id]["base"] = base_pages
+        return True
+
 
 class Table:
     """
