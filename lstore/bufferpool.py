@@ -63,8 +63,11 @@ class Bufferpool:
     def _make_file_path(self, table_name, range_id, segment, page_index, column_index):
         if self.base_path is None:
             return None
-        filename = f"{table_name}_r{range_id}_{segment}_p{page_index}_c{column_index}.bin"
-        return self.base_path / filename
+        table_dir = self.base_path / table_name
+        range_dir = table_dir / f"range_{range_id}"
+        segment_dir = range_dir / str(segment)
+        filename = f"page_{page_index}_col_{column_index}.bin"
+        return segment_dir / filename
     
     def get_page(self, table_name, range_id, segment, page_index, column_index):
         page_key = self._make_page_key(table_name, range_id, segment, page_index, column_index)
@@ -158,6 +161,17 @@ class Bufferpool:
             page = self.cache[page_key]
             if page.dirty:
                 self._write_page_to_disk(page_key, page)
+
+    def discard_table(self, table_name: str):
+        """Remove all cached pages for a table without writing them back to disk."""
+        keys_to_remove = [key for key in self.cache if key[0] == table_name]
+        for key in keys_to_remove:
+            page = self.cache[key]
+            if page.is_pinned():
+                raise RuntimeError(
+                    f"Cannot discard table {table_name}: page {key} is currently pinned"
+                )
+            del self.cache[key]
     
     def flush_all(self):
         """Write all dirty pages to disk (called on database close)."""
