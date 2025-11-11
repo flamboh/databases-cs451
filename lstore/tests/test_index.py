@@ -8,6 +8,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from config import Config
 from lstore.index import Index
+from lstore.query import Query
 from lstore.table import Table
 
 
@@ -166,6 +167,20 @@ def test_secondary_index_with_real_table_and_mutations():
 
     index.remove(rid_map[101], [101, 900, 12])
     assert rid_map[101] not in index.locate(1, 900)
+
+
+def test_create_index_after_updates_reflects_latest_values():
+    table = Table("metrics", num_columns=3, key=0)
+    query = Query(table)
+
+    primary_key = 55
+    rid = _insert_base_record(table, primary_key, 10, 20)
+
+    assert query.update(primary_key, None, 999, None)
+
+    assert table.index.create_index(1)
+    assert table.index.locate(1, 999) == [rid]
+    assert table.index.locate(1, 10) == []
 
 
 if __name__ == "__main__":

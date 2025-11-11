@@ -15,6 +15,10 @@ class Page:
         self.data = bytearray(Config.page_size)
         self.page_id = id(self)
         self.capacity = Config.records_per_page
+        
+        # Bufferpool support
+        self.dirty = False # track to see if page has been modified
+        self.pin_count = 0 # track how many transactions are using this page
 
     def has_capacity(self):
         """
@@ -33,6 +37,19 @@ class Page:
         """
         return slot_index * Config.int_size
     
+    def pin(self):
+        """Pin this page to prevent eviction while in use."""
+        self.pin_count += 1
+    
+    def unpin(self):
+        """Release the pin once the caller is finished."""
+        if self.pin_count == 0:
+            raise RuntimeError("Page.unpin() called on an unpinned page")
+        self.pin_count -= 1
+    
+    def is_pinned(self):
+        """Check if this page is currently pinned."""
+        return self.pin_count > 0
 
     def write(self, value):
         """
@@ -50,6 +67,7 @@ class Page:
             signed=True,
         )
         self.num_records += 1
+        self.dirty = True # mark as dirty after write
         return self.num_records - 1
 
     def write_slot(self, slot_index, value):
@@ -79,6 +97,7 @@ class Page:
                 signed=True,
             )
             self.num_records += 1
+            self.dirty = True # mark as dirty after write
             return slot_index
 
         slot_offset = self.get_offset(slot_index)
@@ -87,6 +106,7 @@ class Page:
             byteorder=Config.byteorder,
             signed=True,
         )
+        self.dirty = True # mark as dirty after write
         return slot_index
 
     def read(self, slot_index):
@@ -119,6 +139,37 @@ class Page:
             raise IndexError(f"Invalid range [{start}, {end}) out of bounds [0, {self.num_records}) or start > end")
         return [self.read(slot_index) for slot_index in range(start, end)]
 
+    # ------------------------------------------------------------------
+    # Serialization for disk persistence
+    # ------------------------------------------------------------------
+    
+    def to_bytes(self):
+        """
+        Serialize this page to bytes for writing to disk.
+        Returns the raw page data plus metadata.
+        
+        :return: bytes object containing page data and metadata
+        """
+        # Format: [num_records (8 bytes)][page data (4096 bytes)]
+        header = self.num_records.to_bytes(8, byteorder=Config.byteorder, signed=False)
+        return header + bytes(self.data)
+    
+    @staticmethod
+    def from_bytes(data):
+        """
+        Deserialize a page from bytes read from disk.
+        
+        :param data: bytes object containing serialized page
+        :return: Page object
+        """
+        page = Page()
+        # Read header
+        page.num_records = int.from_bytes(data[0:8], byteorder=Config.byteorder, signed=False)
+        # Read page data
+        page.data = bytearray(data[8:8+Config.page_size])
+        page.dirty = False  # Fresh from disk, so not dirty
+        return page
+    
     def __repr__(self):
         """Provide a concise, human-readable view when pages are printed."""
         return (
