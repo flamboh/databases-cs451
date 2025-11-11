@@ -70,7 +70,6 @@ class Index:
     # Index lifecycle
     # ------------------------------------------------------------------
     def create_index(self, column_number: int) -> bool:
-        pass
         if not 0 <= column_number < self.table.num_columns:
             raise ValueError(f"Column {column_number} out of bounds for index creation")
         if self.indices[column_number] is not None:
@@ -82,7 +81,6 @@ class Index:
         return True
 
     def drop_index(self, column_number: int) -> bool:
-        pass
         if column_number == self.table.key:
             # Primary key index must always exist.
             return False
@@ -95,7 +93,6 @@ class Index:
     # Bulk loading helpers
     # ------------------------------------------------------------------
     def _bulk_load(self, column_number: int, tree: BPlusTree) -> None:
-        pass
         for rid, row in self._iterate_existing_rows():
             try:
                 value = row[column_number]
@@ -106,20 +103,31 @@ class Index:
             tree.insert(value, rid)
 
     def _iterate_existing_rows(self) -> Iterable[Tuple[int, List[Optional[int]]]]:
-        pass
-        if hasattr(self.table, "iter_rows_for_index"):
-            yield from self.table.iter_rows_for_index()
+        row_iterator = getattr(self.table, "iter_rows_for_index", None)
+        if callable(row_iterator):
+            yield from row_iterator()
             return
 
         directory = getattr(self.table, "page_directory", None)
         get_record = getattr(self.table, "get_record", None)
+        get_cumulative = getattr(self.table, "get_cumulative_updated_record", None)
         if directory is None or get_record is None:
             return
 
         # If the table exposes a page directory, iterate known RIDs.
         for rid in range(directory.num_base_records):
             try:
-                record = get_record(rid)
+                if callable(get_cumulative):
+                    record = get_cumulative(rid)
+                    data_offset = Config.tail_meta_columns
+                else:
+                    record = get_record(rid)
+                    data_offset = Config.base_meta_columns
             except RuntimeError:
                 continue
-            yield rid, record[Config.base_meta_columns :]
+            if (
+                len(record) > Config.indirection_column
+                and record[Config.indirection_column] == Config.deleted_record_value
+            ):
+                continue
+            yield rid, record[data_offset : data_offset + self.table.num_columns]
