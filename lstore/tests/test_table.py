@@ -1,5 +1,6 @@
 import pytest
 from random import randint, seed, sample
+from time import perf_counter
 
 from config import Config
 from lstore.table import Table
@@ -21,10 +22,11 @@ def test_random_key_insertions():
     grades_table = Table("grades", num_columns=5, key=0)
     stored_records = {}
 
-    record_count = 100
+    record_count = 100000
     seed(3562901)
 
     keys = sample(range(92106429, 92106429 + record_count * 3), record_count)
+    start_time = perf_counter()
 
     for primary_key in keys:
         base_record = (
@@ -42,6 +44,10 @@ def test_random_key_insertions():
 
         record = grades_table.get_record(rid)
         assert record == stored_records[keys[record_index]]
+
+    duration = perf_counter() - start_time
+    print(f"random key insertions took {duration:.2f}s")
+    assert duration < 30.0, f"random key insertions took {duration:.2f}s"
 
 
 def test_delete_record():
