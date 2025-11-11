@@ -3,3 +3,6 @@
 **/.pytest_cache
 *.DS_Store
 .coverage
+testM1.py
+testM2.py
+testM3.py
