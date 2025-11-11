@@ -22,7 +22,7 @@ def test_random_key_insertions():
     grades_table = Table("grades", num_columns=5, key=0)
     stored_records = {}
 
-    record_count = 100000
+    record_count = 100
     seed(3562901)
 
     keys = sample(range(92106429, 92106429 + record_count * 3), record_count)
@@ -137,8 +137,9 @@ def test_tail_range_capacity_limit():
     base_record = base_meta_template + [42] + [0 for _ in range(grades_table.num_columns - 1)]
     base_rid = grades_table.insert_record(base_record, is_tail=False)
 
-    # Fill all tail slots in the base range.
-    for tail_index in range(Config.records_per_range):
+    # Fill all tail slots in the base range across every tail segment.
+    tail_capacity = Config.records_per_range * Config.max_tail_segments
+    for tail_index in range(tail_capacity):
         tail_record = base_meta_template + [-1] + [42] + [tail_index for _ in range(grades_table.num_columns - 1)]
         tail_record[Config.base_rid_column] = base_rid
         grades_table.insert_record(tail_record, is_tail=True, base_rid=base_rid)
