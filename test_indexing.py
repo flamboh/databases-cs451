@@ -15,6 +15,7 @@ assert table.index.create_index(1) == True
 
 # Should find both records with value 100 in column 1
 results = query.select(100, 1, [1, 1, 1])
+assert len(results) == 2
 print(f"Found {len(results)} records")  # Should print: Found 2 records
 
 # Try to create the same index again - should return False
