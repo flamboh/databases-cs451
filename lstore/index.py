@@ -115,19 +115,22 @@ class Index:
             return
 
         # If the table exposes a page directory, iterate known RIDs.
-        for rid in range(directory.num_base_records):
-            try:
-                if callable(get_cumulative):
-                    record = get_cumulative(rid)
-                    data_offset = Config.tail_meta_columns
-                else:
-                    record = get_record(rid)
-                    data_offset = Config.base_meta_columns
-            except RuntimeError:
-                continue
-            if (
-                len(record) > Config.indirection_column
-                and record[Config.indirection_column] == Config.deleted_record_value
-            ):
-                continue
-            yield rid, record[data_offset : data_offset + self.table.num_columns]
+        for range_id in sorted(directory.base_offsets.keys()):
+            record_count = directory.base_offsets[range_id]
+            for offset in range(record_count):
+                rid = directory.encode_rid(range_id, 0, offset)
+                try:
+                    if callable(get_cumulative):
+                        record = get_cumulative(rid)
+                        data_offset = Config.tail_meta_columns
+                    else:
+                        record = get_record(rid)
+                        data_offset = Config.base_meta_columns
+                except RuntimeError:
+                    continue
+                if (
+                    len(record) > Config.indirection_column
+                    and record[Config.indirection_column] == Config.deleted_record_value
+                ):
+                    continue
+                yield rid, record[data_offset : data_offset + self.table.num_columns]
