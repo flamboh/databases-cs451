@@ -68,16 +68,35 @@ class PageDirectory:
 
 
     def encode_rid(self, range_id, segment, offset):
-        return range_id * Config.range_cap + segment * Config.records_per_range + offset
+        segments_per_range = Config.segments_per_range
+        global_segment = range_id * segments_per_range + segment
+        return global_segment * Config.records_per_range + offset
 
     def decode_rid(self, rid: int):
-        range_id = rid // Config.range_cap
-        segment_block = rid % Config.range_cap
-        segment = segment_block // Config.records_per_range
-        offset = segment_block % Config.records_per_range
+        segment_span = Config.records_per_range
+        global_segment = rid // segment_span
+        offset = rid % segment_span
+        segments_per_range = Config.segments_per_range
+        segment = global_segment % segments_per_range
+        range_id = global_segment // segments_per_range
         page_index = offset // Config.records_per_page
         slot_index = offset % Config.records_per_page
         return range_id, segment, page_index, slot_index
+
+    def _ensure_logical_page(self, range_id, segment, page_index, num_columns):
+        if segment == 0:
+            segment_pages = self.page_directory[range_id]["base"]
+        else:
+            tail_segments = self.page_directory[range_id]["tail"]
+            tail_index = segment - 1
+            while len(tail_segments) <= tail_index:
+                tail_segments.append([])
+            segment_pages = tail_segments[tail_index]
+
+        while page_index >= len(segment_pages):
+            segment_pages.append([Page() for _ in range(num_columns)])
+
+        return segment_pages[page_index]
 
 
     def add_record(self, columns: list[int], is_tail: bool = False, base_rid: int = Config.null_value):
@@ -108,15 +127,22 @@ class PageDirectory:
             columns[Config.schema_encoding_column] = 0
         else:
             base_range = self.decode_rid(base_rid)[0]
-            offset = self.tail_offsets[base_range]
-            if offset >= Config.records_per_range:
-                raise RuntimeError("Tail range is full; merge required before inserting more tail records")
-            pending_updates = offset - self.tail_merge_progress[base_range]
+            total_offset = self.tail_offsets[base_range]
+            pending_updates = total_offset - self.tail_merge_progress[base_range]
             if pending_updates >= self.merge_thresholds[base_range]:
                 self.merge_range(base_range)
                 self.merge_thresholds[base_range] = max(1, self.merge_thresholds[base_range] * 2)
-                offset = self.tail_offsets[base_range]
-            rid = self.encode_rid(base_range, 1, offset)
+                total_offset = self.tail_offsets[base_range]
+
+            max_capacity = Config.records_per_range * Config.max_tail_segments
+            if total_offset >= max_capacity:
+                raise RuntimeError("Tail range is full; merge required before inserting more tail records")
+
+            segment_index = total_offset // Config.records_per_range
+            segment_offset = total_offset % Config.records_per_range
+            segment_id = 1 + segment_index
+
+            rid = self.encode_rid(base_range, segment_id, segment_offset)
             self.tail_offsets[base_range] += 1
             columns[Config.schema_encoding_column] = self.build_schema_encoding(columns)
             base_record = self.get_record_from_rid(base_rid)
@@ -127,19 +153,12 @@ class PageDirectory:
             columns[Config.base_rid_column] = base_rid
 
         columns[Config.timestamp_column] = int(time())
-        range_id, _, page_index, _ = self.decode_rid(rid)
-        segment_key = "tail" if is_tail else "base"
-        
-        while page_index >= len(self.page_directory[range_id][segment_key]):
-            # Each logical page holds one columnar Page per column (meta + data).
-            self.page_directory[range_id][segment_key].append(
-                [Page() for _ in range(num_columns)]
-            )
+        range_id, segment_id, page_index, _ = self.decode_rid(rid)
+        logical_page = self._ensure_logical_page(range_id, segment_id, page_index, num_columns)
 
         columns[Config.rid_column] = rid
         for i, value in enumerate(columns):
-            physical_page = self.page_directory[range_id][segment_key][page_index][i]
-            physical_page.write(value)
+            logical_page[i].write(value)
         
         if not is_tail:
             self.num_base_records += 1
@@ -191,9 +210,21 @@ class PageDirectory:
         :return: list[int] - the columns of the record
         """
         range_id, segment, page_index, slot_index = self.decode_rid(rid)
-        segment_key = "tail" if segment else "base"
-        num_columns = (Config.tail_meta_columns if segment else Config.base_meta_columns) + self.num_columns
-        logical_page = self.page_directory[range_id][segment_key][page_index]
+        if segment == 0:
+            segment_pages = self.page_directory[range_id]["base"]
+            num_columns = Config.base_meta_columns + self.num_columns
+        else:
+            tail_segments = self.page_directory[range_id]["tail"]
+            tail_index = segment - 1
+            if tail_index >= len(tail_segments):
+                raise RuntimeError(f"Tail segment {segment} not found for range {range_id}")
+            segment_pages = tail_segments[tail_index]
+            num_columns = Config.tail_meta_columns + self.num_columns
+
+        if page_index >= len(segment_pages):
+            raise RuntimeError(f"Logical page {page_index} missing for range {range_id}, segment {segment}")
+
+        logical_page = segment_pages[page_index]
         columns = [logical_page[i].read(slot_index) for i in range(num_columns)]
 
         # if not segment and columns[Config.indirection_column] == Config.deleted_record_value: # Deleted records should still return from this method
@@ -310,7 +341,7 @@ class PageDirectory:
         return True
 
     def merge_range(self, range_id):
-        tail_pages = deque(self.page_directory[range_id]["tail"])
+        tail_segments = self.page_directory[range_id]["tail"]
         base_pages = self.page_directory[range_id]["base"][:]
         data_column_offset = Config.base_meta_columns
         tail_data_offset = Config.tail_meta_columns
@@ -321,39 +352,54 @@ class PageDirectory:
             return False
 
         merged_any = False
-        for logical_page in tail_pages:
-            num_records = logical_page[0].num_records
-            for tail_slot in range(num_records):
-                tail_columns = [column_page.read(tail_slot) for column_page in logical_page]
-                tail_rid = tail_columns[Config.rid_column]
-                base_rid = tail_columns[Config.base_rid_column]
-                if base_rid == Config.null_value:
+        for segment_pages in tail_segments:
+            for logical_page in segment_pages:
+                if not logical_page:
                     continue
-
-                _, _, tail_page_index, tail_slot_index = self.decode_rid(tail_rid)
-                tail_offset = tail_page_index * Config.records_per_page + tail_slot_index
-                if tail_offset < start_offset or tail_offset >= end_offset:
-                    continue
-
-                _, _, base_page_index, base_slot_index = self.decode_rid(base_rid)
-                base_logical_page = base_pages[base_page_index]
-
-                for column_index in range(self.num_columns):
-                    value = tail_columns[tail_data_offset + column_index]
-                    if value == Config.null_value:
+                num_records = logical_page[0].num_records
+                for tail_slot in range(num_records):
+                    tail_columns = [column_page.read(tail_slot) for column_page in logical_page]
+                    tail_rid = tail_columns[Config.rid_column]
+                    base_rid = tail_columns[Config.base_rid_column]
+                    if base_rid == Config.null_value:
                         continue
-                    base_column_page = base_logical_page[data_column_offset + column_index]
-                    base_column_page.write_slot(base_slot_index, value)
 
-                base_schema_page = base_logical_page[Config.schema_encoding_column]
-                base_schema_page.write_slot(base_slot_index, 0)
-                merged_any = True
+                    _, tail_segment, tail_page_index, tail_slot_index = self.decode_rid(tail_rid)
+                    tail_segment_index = max(0, tail_segment - 1)
+                    tail_offset = (
+                        tail_segment_index * Config.records_per_range
+                        + tail_page_index * Config.records_per_page
+                        + tail_slot_index
+                    )
+                    if tail_offset < start_offset or tail_offset >= end_offset:
+                        continue
+
+                    _, _, base_page_index, base_slot_index = self.decode_rid(base_rid)
+                    base_logical_page = base_pages[base_page_index]
+
+                    for column_index in range(self.num_columns):
+                        value = tail_columns[tail_data_offset + column_index]
+                        if value == Config.null_value:
+                            continue
+                        base_column_page = base_logical_page[data_column_offset + column_index]
+                        base_column_page.write_slot(base_slot_index, value)
+
+                    base_schema_page = base_logical_page[Config.schema_encoding_column]
+                    base_schema_page.write_slot(base_slot_index, 0)
+                    merged_any = True
 
         if not merged_any:
             return False
 
         self.tail_merge_progress[range_id] = end_offset
-        tps_value = 0 if end_offset == 0 else self.encode_rid(range_id, 1, end_offset - 1)
+        if end_offset == 0:
+            tps_value = 0
+        else:
+            last_offset = end_offset - 1
+            last_segment_index = last_offset // Config.records_per_range
+            last_segment_id = 1 + last_segment_index
+            last_segment_offset = last_offset % Config.records_per_range
+            tps_value = self.encode_rid(range_id, last_segment_id, last_segment_offset)
         self.page_directory[range_id]["TPS"] = tps_value
         self.page_directory[range_id]["base"] = base_pages
         return True
