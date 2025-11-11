@@ -427,6 +427,30 @@ class Table:
         """
         return self.page_directory.get_record_from_rid(rid)
 
+    def iter_rows_for_index(self):
+        """
+        Yields (rid, data_columns) for every non-deleted base record.
+        Used by Index to build secondary structures without peeking into internals.
+        """
+        directory = self.page_directory
+        if not directory.base_offsets:
+            return
+
+        # Iterate ranges deterministically so index construction is reproducible.
+        for range_id in sorted(directory.base_offsets.keys()):
+            record_count = directory.base_offsets[range_id]
+            if record_count <= 0:
+                continue
+            for offset in range(record_count):
+                rid = directory.encode_rid(range_id, 0, offset)
+                try:
+                    record = directory.get_cumulative_updated_record_from_base_rid(rid)
+                except RuntimeError:
+                    continue
+                if record[Config.indirection_column] == Config.deleted_record_value:
+                    continue
+                yield rid, record[Config.tail_meta_columns : Config.tail_meta_columns + self.num_columns]
+
     def get_relative_version_of_record(self, rid: int, version: int = -1):
         """
         Gets a relative version of a record from the table
