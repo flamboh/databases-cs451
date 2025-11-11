@@ -7,7 +7,9 @@ class Config:
     records_per_page = page_size // int_size
     pages_per_range = 16
     records_per_range = records_per_page * pages_per_range
-    range_cap = records_per_range * 2
+    max_tail_segments = 16
+    segments_per_range = 1 + max_tail_segments
+    range_cap = records_per_range * segments_per_range
     byteorder = 'little'
     indirection_column = 0
     rid_column = 1
