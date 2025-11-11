@@ -5,6 +5,18 @@ from config import Config
 from lstore.table import Table
 
 
+def _build_base_record(num_columns, primary_key, *values):
+    assert len(values) == num_columns - 1
+    return [Config.null_value for _ in range(Config.base_meta_columns)] + [primary_key, *values]
+
+
+def _build_tail_record(num_columns, updates):
+    tail_record = [Config.null_value for _ in range(Config.tail_meta_columns + num_columns)]
+    for column_index, value in updates.items():
+        tail_record[Config.tail_meta_columns + column_index] = value
+    return tail_record
+
+
 def test_random_key_insertions():
     grades_table = Table("grades", num_columns=5, key=0)
     stored_records = {}
@@ -153,3 +165,116 @@ def test_large_base_insert_spans_ranges():
         rid = grades_table.page_directory.encode_rid(range_id, 0, offset)
         record = grades_table.get_record(rid)
         assert record[Config.rid_column] == rid
+
+
+def test_merge_range_promotes_tail_updates_to_base_pages():
+    grades_table = Table("grades", num_columns=3, key=0)
+    base_rid = grades_table.insert_record(
+        _build_base_record(grades_table.num_columns, 100, 10, 20),
+        is_tail=False,
+    )
+
+    tail_record = _build_tail_record(grades_table.num_columns, {1: 77})
+    grades_table.insert_record(tail_record, is_tail=True, base_rid=base_rid)
+
+    pre_merge_data = grades_table.get_record(base_rid)[
+        Config.base_meta_columns : Config.base_meta_columns + grades_table.num_columns
+    ]
+    assert pre_merge_data[1] == 10
+
+    grades_table.page_directory.merge_range(0)
+
+    merged_data = grades_table.get_record(base_rid)[
+        Config.base_meta_columns : Config.base_meta_columns + grades_table.num_columns
+    ]
+    assert merged_data == [100, 77, 20]
+
+
+def test_merge_range_updates_every_base_record_in_range():
+    grades_table = Table("grades", num_columns=4, key=0)
+    base_rows = [
+        _build_base_record(grades_table.num_columns, 100, 10, 20, 30),
+        _build_base_record(grades_table.num_columns, 200, 40, 50, 60),
+    ]
+    base_rids = [grades_table.insert_record(row, is_tail=False) for row in base_rows]
+
+    tail_updates = [
+        (base_rids[0], {1: 90}),
+        (base_rids[0], {2: 123}),
+        (base_rids[1], {3: 70}),
+        (base_rids[1], {3: 80}),
+    ]
+    for rid, update_map in tail_updates:
+        tail_record = _build_tail_record(grades_table.num_columns, update_map)
+        grades_table.insert_record(tail_record, is_tail=True, base_rid=rid)
+
+    grades_table.page_directory.merge_range(0)
+
+    expected_by_rid = {
+        base_rids[0]: [100, 90, 123, 30],
+        base_rids[1]: [200, 40, 50, 80],
+    }
+    for rid, expected in expected_by_rid.items():
+        merged_data = grades_table.get_record(rid)[
+            Config.base_meta_columns : Config.base_meta_columns + grades_table.num_columns
+        ]
+        assert merged_data == expected
+
+
+def test_merge_threshold_triggers_after_configured_tail_count():
+    grades_table = Table("grades", num_columns=3, key=0)
+    base_rid = grades_table.insert_record(
+        _build_base_record(grades_table.num_columns, 100, 10, 20),
+        is_tail=False,
+    )
+    directory = grades_table.page_directory
+    directory.merge_thresholds[0] = 1
+
+    def base_data():
+        return grades_table.get_record(base_rid)[
+            Config.base_meta_columns : Config.base_meta_columns + grades_table.num_columns
+        ]
+
+    def insert_tail(value):
+        tail_record = _build_tail_record(grades_table.num_columns, {1: value})
+        grades_table.insert_record(tail_record, is_tail=True, base_rid=base_rid)
+
+    assert base_data() == [100, 10, 20]
+
+    insert_tail(55)
+    assert base_data() == [100, 10, 20]
+
+    insert_tail(65)
+    assert base_data() == [100, 55, 20]
+    assert directory.merge_thresholds[0] == 2
+
+
+def test_merge_threshold_requires_additional_updates_after_each_merge():
+    grades_table = Table("grades", num_columns=3, key=0)
+    base_rid = grades_table.insert_record(
+        _build_base_record(grades_table.num_columns, 100, 10, 20),
+        is_tail=False,
+    )
+    directory = grades_table.page_directory
+    directory.merge_thresholds[0] = 1
+
+    def base_data():
+        return grades_table.get_record(base_rid)[
+            Config.base_meta_columns : Config.base_meta_columns + grades_table.num_columns
+        ]
+
+    def insert_tail(value):
+        tail_record = _build_tail_record(grades_table.num_columns, {1: value})
+        grades_table.insert_record(tail_record, is_tail=True, base_rid=base_rid)
+
+    insert_tail(50)
+    insert_tail(60)
+    assert base_data() == [100, 50, 20]
+    assert directory.merge_thresholds[0] == 2
+
+    insert_tail(70)
+    assert base_data() == [100, 50, 20]
+
+    insert_tail(80)
+    assert base_data() == [100, 70, 20]
+    assert directory.merge_thresholds[0] == 4
