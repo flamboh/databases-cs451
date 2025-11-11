@@ -24,6 +24,7 @@ def _run_script(script_name: str, cleanup_before: bool = False) -> None:
         [sys.executable, str(script_path)],
         capture_output=True,
         text=True,
+        timeout=300,
     )
     if result.returncode != 0:
         raise AssertionError(
