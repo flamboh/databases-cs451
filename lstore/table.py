@@ -431,10 +431,15 @@ class PageDirectory:
         # Gather the tail chain so we can walk versions from oldest to newest.
         tails_newest_first = []
         current_rid = base_record[Config.indirection_column]
+        if current_rid in (Config.null_value, Config.deleted_record_value):
+            current_rid = base_rid
+
         while current_rid != base_rid:
             tail_record = self.get_record_from_rid(current_rid)
             tails_newest_first.append(tail_record)
             current_rid = tail_record[Config.indirection_column]
+            if current_rid == Config.null_value:
+                current_rid = base_rid
 
         tails_oldest_first = tails_newest_first[::-1]
         data_column_count = self.num_columns + Config.tail_meta_columns
