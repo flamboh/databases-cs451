@@ -914,8 +914,3 @@ class Table:
     def __del__(self):
         # Best-effort cleanup to avoid leaking background threads in tests.
         self.close()
-
-    def __merge(self):
-        print("merge is happening")
-        pass
- 
