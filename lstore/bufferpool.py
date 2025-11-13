@@ -21,6 +21,7 @@ Workflow Example:
 """
 import os
 from collections import OrderedDict
+from threading import RLock
 from typing import Optional, Tuple
 
 from config import Config
@@ -44,6 +45,7 @@ class Bufferpool:
         """
         self.capacity = capacity
         self.base_path = Path(base_path) if base_path else None
+        self._lock = RLock()
         
         if self.base_path:
             self.base_path.mkdir(parents=True, exist_ok=True)
@@ -71,20 +73,21 @@ class Bufferpool:
     
     def get_page(self, table_name, range_id, segment, page_index, column_index):
         page_key = self._make_page_key(table_name, range_id, segment, page_index, column_index)
-        page = self.cache.get(page_key)
+        with self._lock:
+            page = self.cache.get(page_key)
 
-        if page is not None:
-            self.cache.move_to_end(page_key)
-            self.hits += 1
-        else:
-            self.misses += 1
-            if len(self.cache) >= self.capacity:
-                self._evict_page()
-            page = self._load_page(table_name, range_id, segment, page_index, column_index)
-            self.cache[page_key] = page
+            if page is not None:
+                self.cache.move_to_end(page_key)
+                self.hits += 1
+            else:
+                self.misses += 1
+                if len(self.cache) >= self.capacity:
+                    self._evict_page_locked()
+                page = self._load_page(table_name, range_id, segment, page_index, column_index)
+                self.cache[page_key] = page
 
-        page.pin()
-        return page, page_key
+            page.pin()
+            return page, page_key
     
     def _load_page(self, table_name: str, range_id: int, segment: str, 
                    page_index: int, column_index: int) -> Page:
@@ -105,7 +108,7 @@ class Bufferpool:
             print(f"Warning: Failed to load page from {file_path}: {e}")
             return Page()
     
-    def _evict_page(self):
+    def _evict_page_locked(self):
         """Evict the least recently used unpinned page."""
         # Find first unpinned page (from least recently used)
         for page_key, page in list(self.cache.items()):
@@ -127,12 +130,13 @@ class Bufferpool:
     
     def release_page(self, page_key: Tuple) -> None:
         """Unpin a previously fetched page so it becomes eligible for eviction."""
-        page = self.cache.get(page_key)
-        if page is None:
-            raise KeyError(f"Page {page_key} was never fetched")
-        page.unpin()
-        if not page.is_pinned():
-            self.cache.move_to_end(page_key)
+        with self._lock:
+            page = self.cache.get(page_key)
+            if page is None:
+                raise KeyError(f"Page {page_key} was never fetched")
+            page.unpin()
+            if not page.is_pinned():
+                self.cache.move_to_end(page_key)
 
     @contextmanager
     def page(self, table_name, range_id, segment, page_index, column_index):
@@ -157,46 +161,51 @@ class Bufferpool:
         """Flush a specific page to disk if it's dirty."""
         page_key = self._make_page_key(table_name, range_id, segment, page_index, column_index)
         
-        if page_key in self.cache:
-            page = self.cache[page_key]
-            if page.dirty:
-                self._write_page_to_disk(page_key, page)
+        with self._lock:
+            if page_key in self.cache:
+                page = self.cache[page_key]
+                if page.dirty:
+                    self._write_page_to_disk(page_key, page)
 
     def discard_table(self, table_name: str):
         """Remove all cached pages for a table without writing them back to disk."""
-        keys_to_remove = [key for key in self.cache if key[0] == table_name]
-        for key in keys_to_remove:
-            page = self.cache[key]
-            if page.is_pinned():
-                raise RuntimeError(
-                    f"Cannot discard table {table_name}: page {key} is currently pinned"
-                )
-            del self.cache[key]
+        with self._lock:
+            keys_to_remove = [key for key in self.cache if key[0] == table_name]
+            for key in keys_to_remove:
+                page = self.cache[key]
+                if page.is_pinned():
+                    raise RuntimeError(
+                        f"Cannot discard table {table_name}: page {key} is currently pinned"
+                    )
+                del self.cache[key]
     
     def flush_all(self):
         """Write all dirty pages to disk (called on database close)."""
-        for page_key, page in self.cache.items():
-            if page.dirty:
-                self._write_page_to_disk(page_key, page)
+        with self._lock:
+            for page_key, page in list(self.cache.items()):
+                if page.dirty:
+                    self._write_page_to_disk(page_key, page)
     
     def clear(self):
         """Clear the bufferpool (for testing or shutdown)."""
-        self.flush_all()
-        self.cache.clear()
+        with self._lock:
+            self.flush_all()
+            self.cache.clear()
     
     def get_stats(self):
         """Get bufferpool statistics."""
-        total_accesses = self.hits + self.misses
-        hit_rate = (self.hits / total_accesses * 100) if total_accesses > 0 else 0
-        return {
-            'capacity': self.capacity,
-            'current_size': len(self.cache),
-            'hits': self.hits,
-            'misses': self.misses,
-            'hit_rate': f"{hit_rate:.2f}%",
-            'evictions': self.evictions,
-            'writes': self.writes,
-        }
+        with self._lock:
+            total_accesses = self.hits + self.misses
+            hit_rate = (self.hits / total_accesses * 100) if total_accesses > 0 else 0
+            return {
+                'capacity': self.capacity,
+                'current_size': len(self.cache),
+                'hits': self.hits,
+                'misses': self.misses,
+                'hit_rate': f"{hit_rate:.2f}%",
+                'evictions': self.evictions,
+                'writes': self.writes,
+            }
     
     def __repr__(self):
         stats = self.get_stats()
