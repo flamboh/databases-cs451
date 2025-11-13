@@ -111,7 +111,7 @@ class PageDirectory:
         bufferpool: Bufferpool,
         num_ranges: int = Config.initial_page_ranges,
         metadata: Optional[dict] = None,
-        merge_request_callback: Optional[Callable[[int], None]] = None,
+        merge_request_callback: Optional[Callable[[int, Optional[int]], None]] = None,
     ):
         self.table_name = table_name
         self.bufferpool = bufferpool
@@ -350,14 +350,15 @@ class PageDirectory:
         else:
             if base_rid == Config.null_value:
                 raise ValueError("Tail records require a valid base RID")
-
             schedule_merge = False
+            merge_hint = None
             with self._lock:
                 base_range = self.decode_rid(base_rid)[0]
                 total_offset = self.tail_offsets[base_range]
                 pending_updates = total_offset - self.tail_merge_progress[base_range]
-                if pending_updates >= self.merge_thresholds[base_range]:
-                    schedule_merge = True
+                schedule_merge = pending_updates >= self.merge_thresholds[base_range]
+                if schedule_merge:
+                    merge_hint = total_offset
 
                 max_capacity = Config.records_per_range * Config.max_tail_segments
                 if total_offset >= max_capacity:
@@ -369,6 +370,9 @@ class PageDirectory:
 
                 rid = self.encode_rid(base_range, segment_id, segment_offset)
 
+                self.tail_offsets[base_range] += 1
+                self.num_tail_records += 1
+
             columns[Config.schema_encoding_column] = self.build_schema_encoding(columns)
             base_record = self.get_record_from_rid(base_rid)
             base_indirection = base_record[Config.indirection_column]
@@ -377,11 +381,7 @@ class PageDirectory:
             )
             columns[Config.base_rid_column] = base_rid
             if schedule_merge and self._merge_request_callback:
-                self._merge_request_callback(base_range)
-            with self._lock:
-                self.tail_offsets[base_range] += 1
-                self.num_tail_records += 1
-
+                self._merge_request_callback(base_range, merge_hint)
         columns[Config.timestamp_column] = int(time())
         range_id, segment_id, page_index, _ = self.decode_rid(rid)
         self._ensure_logical_page(range_id, segment_id, page_index)
@@ -566,10 +566,17 @@ class PageDirectory:
             return False
         return self.commit_merge_snapshot(snapshot)
 
-    def prepare_merge_task(self, range_id: int, force: bool = False) -> Optional[RangeMergeTask]:
+    def prepare_merge_task(
+        self,
+        range_id: int,
+        force: bool = False,
+        end_offset_hint: Optional[int] = None,
+    ) -> Optional[RangeMergeTask]:
         with self._lock:
             start_offset = self.tail_merge_progress[range_id]
             end_offset = self.tail_offsets[range_id]
+            if end_offset_hint is not None:
+                end_offset = min(end_offset, end_offset_hint)
             if start_offset >= end_offset:
                 return None
 
@@ -875,8 +882,8 @@ class Table:
                 print(f"Error building merge snapshot: {e}")
                 self.page_directory.cancel_merge_task(task.range_id, task.end_offset)
 
-    def _request_merge(self, range_id: int):
-        task = self.page_directory.prepare_merge_task(range_id)
+    def _request_merge(self, range_id: int, end_offset_hint: Optional[int] = None):
+        task = self.page_directory.prepare_merge_task(range_id, end_offset_hint=end_offset_hint)
         if task:
             self._merge_jobs.put(task)
 
@@ -910,6 +917,9 @@ class Table:
         self._merge_jobs.put(None)
         if self._merge_thread.is_alive():
             self._merge_thread.join(timeout=1.0)
+            if self._merge_thread.is_alive():
+                print("Merge thread did not join in time, force-killing")
+                print(f"Warning: merge thread for table {self.name} did not stop within timeout")
         self.wait_for_merges()
 
     def __del__(self):
