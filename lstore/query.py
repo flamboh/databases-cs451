@@ -221,8 +221,14 @@ class Query:
             
             tail_record = tail_meta + tail_data
             
-            # insert tail record table handles index updates
-            tail_rid = self.table.insert_record(tail_record, is_tail=True, base_rid=base_rid)
+            # insert tail record and update indices using cached values
+            tail_rid = self.table.insert_record(
+                tail_record,
+                is_tail=True,
+                base_rid=base_rid,
+                index_prior_data=current_data,
+                index_new_data=new_data,
+            )
             
             return tail_rid is not False
         except Exception:
