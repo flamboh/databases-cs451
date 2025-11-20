@@ -720,8 +720,8 @@ class Table:
         self.key = key
         self.num_columns = num_columns
         self.bufferpool = bufferpool or Bufferpool()
-        self._merge_jobs: 'queue.Queue[Optional[RangeMergeTask]]' = queue.Queue()
-        self._merge_results: 'queue.Queue[RangeMergeSnapshot]' = queue.Queue()
+        self._merge_jobs: queue.Queue[Optional[RangeMergeTask]] = queue.Queue()
+        self._merge_results: queue.Queue[RangeMergeSnapshot] = queue.Queue()
         self._merge_shutdown = threading.Event()
         self.page_directory = PageDirectory(
             name,
