@@ -720,8 +720,8 @@ class Table:
         self.key = key
         self.num_columns = num_columns
         self.bufferpool = bufferpool or Bufferpool()
-        self._merge_jobs: "queue.Queue[Optional[RangeMergeTask]]" = queue.Queue()
-        self._merge_results: "queue.Queue[RangeMergeSnapshot]" = queue.Queue()
+        self._merge_jobs: 'queue.Queue[Optional[RangeMergeTask]]' = queue.Queue()
+        self._merge_results: 'queue.Queue[RangeMergeSnapshot]' = queue.Queue()
         self._merge_shutdown = threading.Event()
         self.page_directory = PageDirectory(
             name,
@@ -871,8 +871,7 @@ class Table:
                     self._merge_results.put(snapshot)
                 else:
                     self.page_directory.cancel_merge_task(task.range_id, task.end_offset)
-            except (RuntimeError, ValueError, IndexError) as e:
-                print(f"Error building merge snapshot: {e}")
+            except Exception:
                 self.page_directory.cancel_merge_task(task.range_id, task.end_offset)
 
     def _request_merge(self, range_id: int):
