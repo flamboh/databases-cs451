@@ -34,8 +34,6 @@ class Database:
 
     def close(self):
         """Flush all pages and save metadata."""
-        for table in self.tables.values():
-            table.close()
         if self.bufferpool:
             self.bufferpool.flush_all()
         self._save_metadata()
@@ -56,8 +54,7 @@ class Database:
             raise ValueError(f"Table {name} does not exist")
 
         # Remove table metadata and cached pages before deleting files.
-        table = self.tables.pop(name)
-        table.close()
+        del self.tables[name]
         if self.bufferpool:
             self.bufferpool.discard_table(name)
 

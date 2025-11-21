@@ -252,11 +252,9 @@ def test_merge_threshold_triggers_after_configured_tail_count():
     assert base_data() == [100, 10, 20]
 
     insert_tail(55)
-    grades_table.wait_for_merges()
     assert base_data() == [100, 10, 20]
 
     insert_tail(65)
-    grades_table.wait_for_merges()
     assert base_data() == [100, 55, 20]
     assert directory.merge_thresholds[0] == 2
 
@@ -281,37 +279,12 @@ def test_merge_threshold_requires_additional_updates_after_each_merge():
 
     insert_tail(50)
     insert_tail(60)
-    grades_table.wait_for_merges()
     assert base_data() == [100, 50, 20]
     assert directory.merge_thresholds[0] == 2
 
     insert_tail(70)
-    grades_table.wait_for_merges()
     assert base_data() == [100, 50, 20]
 
     insert_tail(80)
-    grades_table.wait_for_merges()
     assert base_data() == [100, 70, 20]
     assert directory.merge_thresholds[0] == 4
-
-
-def test_background_merge_applies_updates_without_manual_trigger():
-    grades_table = Table("grades", num_columns=3, key=0)
-    base_rid = grades_table.insert_record(
-        _build_base_record(grades_table.num_columns, 999, 5, 6),
-        is_tail=False,
-    )
-    directory = grades_table.page_directory
-    directory.merge_thresholds[0] = 1
-
-    tail_record = _build_tail_record(grades_table.num_columns, {1: 123})
-    grades_table.insert_record(tail_record, is_tail=True, base_rid=base_rid)
-
-    noop_tail = _build_tail_record(grades_table.num_columns, {})
-    grades_table.insert_record(noop_tail, is_tail=True, base_rid=base_rid)
-
-    grades_table.wait_for_merges()
-    merged_data = grades_table.get_record(base_rid)[
-        Config.base_meta_columns : Config.base_meta_columns + grades_table.num_columns
-    ]
-    assert merged_data == [999, 123, 6]

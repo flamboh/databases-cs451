@@ -84,3 +84,32 @@ def test_query_deletion_tombstone_behavior():
 
     survivors = query.select(1, 0, [1, 1, 1, 1, 1])
     assert len(survivors) == 1
+
+
+def test_primary_key_updates_require_uniqueness():
+    table, query = _make_grades_table()
+
+    original = [11, 5, 6, 7, 8]
+    other = [22, 1, 2, 3, 4]
+    assert query.insert(*original)
+    assert query.insert(*other)
+
+    # Update pk to an unused value and tweak another column in the same update.
+    updated_values = [None] * table.num_columns
+    updated_values[table.key] = 33
+    updated_values[1] = 99
+    assert query.update(original[0], *updated_values)
+
+    assert query.select(original[0], table.key, [1] * table.num_columns) == []
+    refreshed = query.select(33, table.key, [1] * table.num_columns)
+    assert len(refreshed) == 1
+    assert refreshed[0].columns == [33, 99, original[2], original[3], original[4]]
+
+    # Reject conflicting primary-key changes.
+    conflicting_values = [None] * table.num_columns
+    conflicting_values[table.key] = 33
+    assert not query.update(other[0], *conflicting_values)
+
+    still_there = query.select(other[0], table.key, [1] * table.num_columns)
+    assert len(still_there) == 1
+    assert still_there[0].columns == other

@@ -193,12 +193,15 @@ class Query:
                 return False
             current_data = current_record[Config.tail_meta_columns:]
             
-            # disallow primary-key modifications
+            # allow primary-key modifications only when the new key is unique
             pk_index = self.table.key
             requested_pk = columns[pk_index]
             current_pk = current_data[pk_index]
             if requested_pk is not None and requested_pk != current_pk:
-                return False
+                # allow primary-key changes only if the new key does not already exist
+                existing_rids = self.table.index.locate(pk_index, requested_pk)
+                if any(rid != base_rid for rid in existing_rids):
+                    return False
 
             # create tail record with metadata
             tail_meta = [Config.null_value for _ in range(Config.tail_meta_columns)]
@@ -218,14 +221,8 @@ class Query:
             
             tail_record = tail_meta + tail_data
             
-            # insert tail record and update indices using cached values
-            tail_rid = self.table.insert_record(
-                tail_record,
-                is_tail=True,
-                base_rid=base_rid,
-                index_prior_data=current_data,
-                index_new_data=new_data,
-            )
+            # insert tail record table handles index updates
+            tail_rid = self.table.insert_record(tail_record, is_tail=True, base_rid=base_rid)
             
             return tail_rid is not False
         except Exception:
