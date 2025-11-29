@@ -24,15 +24,18 @@ class TransactionWorker:
     Runs all transaction as a thread
     """
     def run(self):
-        pass
-        # here you need to create a thread and call __run
+        import threading
+        self._thread = threading.Thread(target=self.__run)
+        self._thread.start()
     
 
     """
     Waits for the worker to finish
     """
     def join(self):
-        pass
+        thread = getattr(self, "_thread", None)
+        if thread:
+            thread.join()
 
 
     def __run(self):
@@ -41,4 +44,3 @@ class TransactionWorker:
             self.stats.append(transaction.run())
         # stores the number of transactions that committed
         self.result = len(list(filter(lambda x: x, self.stats)))
-
