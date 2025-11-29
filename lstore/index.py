@@ -6,6 +6,7 @@ from typing import Iterable, List, Optional, Tuple, TYPE_CHECKING
 
 from config import Config
 from lstore.bplus import BPlusTree
+import threading
 
 if TYPE_CHECKING:
     from lstore.table import Table
@@ -16,6 +17,7 @@ class Index:
     def __init__(self, table: "Table") -> None:
         self.table = table
         self.indices: List[Optional[BPlusTree]] = [None] * table.num_columns
+        self.locks = [threading.Lock() for _ in range(table.num_columns)]
         # Always build an index for the primary key column.
         self.create_index(table.key)
 
@@ -23,16 +25,18 @@ class Index:
     # Lookup helpers
     # ------------------------------------------------------------------
     def locate(self, column: int, value: int) -> List[int]:
-        tree = self.indices[column]
+        tree, lock = self._with_tree(column)
         if tree is None:
             return []
-        return tree.find(value)
+        with lock:
+            return tree.find(value)
 
     def locate_range(self, begin: int, end: int, column: int) -> List[int]:
-        tree = self.indices[column]
+        tree, lock = self._with_tree(column)
         if tree is None:
             return []
-        return tree.find_range(begin, end)
+        with lock:
+            return tree.find_range(begin, end)
 
     # ------------------------------------------------------------------
     # Mutation helpers
@@ -44,7 +48,8 @@ class Index:
             value = columns[column]
             if value is None:
                 continue
-            tree.insert(value, rid)
+            with self.locks[column]:
+                tree.insert(value, rid)
 
     def remove(self, rid: int, columns: List[Optional[int]]) -> None:
         for column, tree in enumerate(self.indices):
@@ -53,7 +58,8 @@ class Index:
             value = columns[column]
             if value is None:
                 continue
-            tree.remove(value, rid)
+            with self.locks[column]:
+                tree.remove(value, rid)
 
     def update(self, rid: int, old_values: List[Optional[int]], new_values: List[Optional[int]]) -> None:
         for column, tree in enumerate(self.indices):
@@ -63,8 +69,9 @@ class Index:
             new = new_values[column]
             if old == new or old is None or new is None:
                 continue
-            tree.remove(old, rid)
-            tree.insert(new, rid)
+            with self.locks[column]:
+                tree.remove(old, rid)
+                tree.insert(new, rid)
 
     # ------------------------------------------------------------------
     # Index lifecycle
@@ -77,7 +84,8 @@ class Index:
 
         tree = BPlusTree()
         self.indices[column_number] = tree
-        self._bulk_load(column_number, tree)
+        with self.locks[column_number]:
+            self._bulk_load(column_number, tree)
         return True
 
     def drop_index(self, column_number: int) -> bool:
@@ -134,3 +142,9 @@ class Index:
                 ):
                     continue
                 yield rid, record[data_offset : data_offset + self.table.num_columns]
+
+
+    def _with_tree(self, column):
+        tree = self.indices[column]
+        lock = self.locks[column]
+        return tree, lock

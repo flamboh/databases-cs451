@@ -2,6 +2,7 @@ from collections import defaultdict
 from contextlib import ExitStack, contextmanager
 from time import time
 from typing import Optional
+import threading
 
 from config import Config
 from lstore.bufferpool import Bufferpool
@@ -281,6 +282,16 @@ class PageDirectory:
             for segment_offset, page_count in enumerate(info.get("tail_pages", []), start=1):
                 for page_index in range(page_count):
                     self._ensure_logical_page(range_id, segment_offset, page_index)
+
+
+    def peek_base_rid(self):
+        """
+        Compute the next base RID without mutating offsets.
+        Callers must hold the same critical section used for add_record to avoid mismatch.
+        """
+        range_id = self.num_base_records // Config.records_per_range
+        offset = self.base_offsets[range_id]
+        return self.encode_rid(range_id, 0, offset)
 
 
     def add_record(
@@ -611,7 +622,8 @@ class Table:
             metadata=directory_metadata,
         )
         self.index = Index(self)
-        pass
+        self._insert_lock = threading.RLock()
+
 
     def to_metadata(self) -> dict:
         return {
@@ -676,6 +688,13 @@ class Table:
         :param base_rid: int - the RID of the base record, only used for tail records
         :return: int - the RID of the record
         """
+        with self._insert_lock:
+            return self._insert_record_locked(columns, is_tail=is_tail, base_rid=base_rid)
+
+    def _insert_record_locked(self, columns: list[int], is_tail: bool = False, base_rid: int = Config.null_value):
+        """
+        Internal helper that assumes _insert_lock is held.
+        """
         prior_data = None
         if is_tail:
             prior_data = self.get_cumulative_updated_record(base_rid)[
@@ -715,7 +734,6 @@ class Table:
         except ValueError:
             return False
 
-    def __merge(self):
-        print("merge is happening")
-        pass
- 
+    
+    def get_rid_for_lock(self):
+        return self.page_directory.peek_base_rid()
