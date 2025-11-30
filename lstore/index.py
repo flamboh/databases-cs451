@@ -25,17 +25,19 @@ class Index:
     # Lookup helpers
     # ------------------------------------------------------------------
     def locate(self, column: int, value: int) -> List[int]:
-        tree, lock = self._with_tree(column)
-        if tree is None:
-            return []
+        lock = self.locks[column]
         with lock:
+            tree = self.indices[column]
+            if tree is None:
+                return []
             return tree.find(value)
 
     def locate_range(self, begin: int, end: int, column: int) -> List[int]:
-        tree, lock = self._with_tree(column)
-        if tree is None:
-            return []
+        lock = self.locks[column]
         with lock:
+            tree = self.indices[column]
+            if tree is None:
+                return []
             return tree.find_range(begin, end)
 
     # ------------------------------------------------------------------
@@ -83,8 +85,8 @@ class Index:
             return False
 
         tree = BPlusTree()
-        self.indices[column_number] = tree
         with self.locks[column_number]:
+            self.indices[column_number] = tree
             self._bulk_load(column_number, tree)
         return True
 
@@ -142,9 +144,3 @@ class Index:
                 ):
                     continue
                 yield rid, record[data_offset : data_offset + self.table.num_columns]
-
-
-    def _with_tree(self, column):
-        tree = self.indices[column]
-        lock = self.locks[column]
-        return tree, lock

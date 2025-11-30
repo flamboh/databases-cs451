@@ -1,5 +1,5 @@
-from lstore.table import Table, Record
-from lstore.index import Index
+import time
+import random
 from config import Config
 import threading
 from enum import Enum
@@ -49,9 +49,6 @@ class _LockManager:
                 owners.discard(txn_id)
                 if not owners:
                     empty.append(rid)
-                else:
-                    if entry["mode"] == L.X and len(owners) > 1:
-                        entry["mode"] = L.S
             for rid in empty:
                 del self._locks[rid]
 
@@ -112,6 +109,7 @@ class Transaction:
                 attempts += 1
                 if max_attempts is not None and attempts >= max_attempts:
                     return False
+                time.sleep(random.uniform(0.001, 0.01 * attempts))
                 continue
             except Exception as e:
                 print(
@@ -135,17 +133,16 @@ class Transaction:
                 rid = entry["rid"]
                 try:
                     table.delete_record(rid)
-                except Exception:
-                    continue
+                except Exception as e:
+                    print(f"[txn {id(self)}] rollback insert failed for rid {rid}: {e}")
             elif etype == "update":
                 rid = entry["rid"]
-                old_values = entry["old_values"]
+                old_indirection = entry["old_indirection"]
+                old_schema = entry["old_schema"]
                 try:
-                    tail_meta = [Config.null_value for _ in range(Config.tail_meta_columns)]
-                    tail_record = tail_meta + list(old_values)
-                    table.insert_record(tail_record, is_tail=True, base_rid=rid)
-                except Exception:
-                    continue
+                    self._restore_base_metadata(table, rid, old_indirection, old_schema)
+                except Exception as e:
+                    print(f"[txn {id(self)}] rollback update failed for rid {rid}: {e}")
             elif etype == "delete":
                 rid = entry["rid"]
                 old_values = entry["old_values"]
@@ -156,8 +153,9 @@ class Transaction:
                     table.index.add(rid, old_values)
                     # restore base metadata
                     self._restore_base_metadata(table, rid, old_indirection, old_schema)
-                except Exception:
-                    continue
+                except Exception as e:
+                    print(f"[txn {id(self)}] rollback delete failed for rid {rid}: {e}")
+                    
 
         self._release_locks()
         return False
@@ -201,9 +199,6 @@ class Transaction:
         elif op_name in ("sum", "sum_version"):
             start, end = args[0], args[1]
             rids = table.index.locate_range(start, end, table.key)
-
-        if not rids:
-            raise _AbortTransaction(f"{op_name}: no matching rids found")
 
         for rid in rids:
             if not self._acquire_lock(rid, L.S):
