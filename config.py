@@ -21,3 +21,4 @@ class Config:
     tail_meta_columns = 5
     null_value = -2**63
     deleted_record_value = -1
+    max_attempts = 10
